@@ -130,12 +130,14 @@ This condition is unlikely to hold when source and target models have different 
 
 **Methodology.** For each parameter matrix $l$, we extract $u_l, \sigma_l, v_l$ from $\text{SVD}(\Delta W_l)$. We collect input activations $x_l$ on calibration problems from both source and target models, computing $v_l^T x_l^{\text{src}}$ and $v_l^T x_l^{\text{tgt}}$.
 
-**Sign disambiguation.** SVD singular vectors have an inherent sign ambiguity: $(u, v)$ and $(-u, -v)$ represent the same weight delta. For steering purposes, discarding $v$ makes the sign of $u$ undetermined. We resolve this by orienting each $u$ vector to have non-negative cosine similarity with the corresponding mean-difference steering vector (computed on calibration data). Methods that report using only weight deltas must still apply this orientation step using calibration data.
+**Sign disambiguation.** SVD singular vectors have an inherent sign ambiguity: $(u, v)$ and $(-u, -v)$ represent the same weight delta. For steering purposes, discarding $v$ makes the sign of $u$ undetermined. We resolve this using **source-gate orientation**: for each projection $m$ in layer $l$, we orient $u_{l,m}$ using calibration activations from the source base model:
+$$\tilde{u}_{l,m} = \operatorname{sign}\!\left(\mathbb{E}[v_{l,m}^T x_{\text{src}}]\right) \cdot u_{l,m}$$
+This orientation is applied to each $u_{l,m}$ **individually before combining** across projections. It requires a single calibration pass on the source base model (not the RLVR model). We compare this to a weight-only orientation rule (largest-magnitude coordinate positive, no data required) and a mean-difference orientation (requires both source base and RLVR inference) as ablation baselines in `comprehensive_suite.py`.
 
 ### 5.2 Spectral Concentration
 
 Across 198 parameter matrices (in 28 transformer blocks):
-- Mean rank-1 fraction: $\bar{\rho} = 0.258$ (compare to shape-matched empirical null distributions: mean $\approx 0.003$–$0.007$ depending on matrix shape — a concentration of 40–80× depending on the layer; see `outputs/spectral_null.json` for per-shape results)
+- Mean rank-1 fraction: $\bar{\rho} = 0.258$ (compare to shape-matched empirical null distributions: mean $\approx 0.003$–$0.007$ depending on matrix shape — a concentration of 40–80× depending on the layer; *provisional — see `outputs/spectral_null.json` once `gate_analysis.py` completes*)
 - Maximum: $\rho_{\max} = 0.871$ (attention V-projection in layer 27)
 - Matrices with $\rho > 0.3$: 57/198 (29%)
 
@@ -316,7 +318,7 @@ These findings *suggest* (but do not establish) broader implications: any low-ra
 
 We have established a local algebraic connection between rank-1 weight transfer and input-conditional activation steering (Proposition 1), providing a framework for analyzing why RLVR reasoning vectors degrade when transferred across models. The gating signal $v^T x$ — which controls whether and how strongly the learned steering is applied — drops to 39% of its source magnitude on the target model with 10% polarity inversions. This is consistent with the observed +2 pp weight-transfer vs +14 pp activation-steering gap, though recalibration results suggest additional factors contribute.
 
-Based on this understanding, we proposed SVD-derived activation steering, which extracts the steering component $u$ from weight deltas and applies it unconditionally at the residual stream. This achieves +10 pp with sparse top-K layer selection on preliminary n=50 experiments, approaching empirical mean-difference steering (+14 pp). Key practical advantages include: no source-model forward passes needed for vector extraction, per-block importance weights from singular values, and broader effective range of steering strength $\alpha$.
+Based on this understanding, we proposed SVD-derived activation steering, which extracts the steering component $u$ from weight deltas and applies it unconditionally at the residual stream. This achieves +10 pp with sparse top-K layer selection on preliminary n=50 experiments, approaching empirical mean-difference steering (+14 pp). Key practical advantages include: no RLVR-model forward passes needed for vector extraction (only the weight delta is used; sign orientation requires a single source base model calibration pass), per-block importance weights from singular values, and broader effective range of steering strength $\alpha$.
 
 The most defensible current contribution is an exploratory study showing that rank-1 RLVR weight deltas retain substantial same-model performance (81.6% of gain), and that left-singular-vector residual interventions consistently improve one target model. Stronger conclusions await validation at n=400 on disjoint test sets, across multiple RLVR sources, and on additional target models.
 

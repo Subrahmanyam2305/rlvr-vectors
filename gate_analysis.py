@@ -27,10 +27,10 @@ TARGET_SUFFIXES = ["self_attn.o_proj.weight", "mlp.down_proj.weight"]
 N_NULL_DRAWS = 50   # per shape; fast with power iteration
 
 
-def top_sv_ratio_power(G: np.ndarray, n_iter: int = 20) -> float:
+def top_sv_ratio_power(G: np.ndarray, n_iter: int = 20, seed: int = 0) -> float:
     """Estimate sigma_1^2 / ||G||_F^2 via power iteration. O(mn * n_iter)."""
     m, n = G.shape
-    rng = np.random.default_rng()
+    rng = np.random.default_rng(seed)
     v = rng.standard_normal(n).astype(np.float32)
     v /= np.linalg.norm(v) + 1e-10
     sigma = 0.0
@@ -240,14 +240,14 @@ def run_spectral_null():
         shape_groups.setdefault(shape, []).append(d["rank1_frac"])
 
     null_results = {}
-    rng_state = np.random.default_rng(42)
+    rng_state = np.random.default_rng(42)   # fixed seed for reproducibility
 
     for shape, observed_fracs in shape_groups.items():
         m, n = shape
         null_fracs = []
         for draw in range(N_NULL_DRAWS):
             G = rng_state.standard_normal((m, n)).astype(np.float32)
-            null_fracs.append(top_sv_ratio_power(G, n_iter=20))
+            null_fracs.append(top_sv_ratio_power(G, n_iter=20, seed=draw))
 
         null_mean = float(np.mean(null_fracs))
         null_std  = float(np.std(null_fracs))
