@@ -1,0 +1,9 @@
+[
+  {
+    "accuracy": 47.0,
+    "correct": 47,
+    "total": 100,
+    "name": "random_baseline",
+    "elapsed": 1510.7542126178741
+  }
+]

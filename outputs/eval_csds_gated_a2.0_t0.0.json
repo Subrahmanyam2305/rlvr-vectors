@@ -1,0 +1,8 @@
+{
+  "accuracy": 0.0,
+  "correct": 0,
+  "total": 50,
+  "alpha": 2.0,
+  "gate_threshold": 0.0,
+  "name": "csds_gated_a2.0_t0.0"
+}

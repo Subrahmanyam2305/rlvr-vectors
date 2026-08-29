@@ -1,0 +1,8 @@
+{
+  "accuracy": 0.0,
+  "correct": 0,
+  "total": 50,
+  "alpha": 0.5,
+  "gate_threshold": -1.0,
+  "name": "csds_unconditional_a0.5"
+}

@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Large model outputs (keep JSON results, skip model checkpoints)
+outputs/rlvr_oneshot_instruct/
+outputs/rlvr_batch50_instruct/
+outputs/rank1_vectors.pt
+outputs/rank4_vectors.pt
+*.safetensors
+*.bin
+
+# Logs
+outputs/*_log.txt
+*.log

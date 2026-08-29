@@ -1,0 +1,42 @@
+{
+  "baseline": {
+    "accuracy": 46.0,
+    "correct": 23,
+    "total": 50
+  },
+  "svd_sigma_weighted_a0.01": {
+    "accuracy": 48.0,
+    "correct": 24,
+    "total": 50
+  },
+  "svd_sigma_weighted_a0.03": {
+    "accuracy": 46.0,
+    "correct": 23,
+    "total": 50
+  },
+  "svd_sigma_weighted_a0.05": {
+    "accuracy": 48.0,
+    "correct": 24,
+    "total": 50
+  },
+  "svd_sigma_weighted_a0.1": {
+    "accuracy": 44.0,
+    "correct": 22,
+    "total": 50
+  },
+  "svd_top10_a0.05": {
+    "accuracy": 48.0,
+    "correct": 24,
+    "total": 50
+  },
+  "svd_top10_a0.1": {
+    "accuracy": 46.0,
+    "correct": 23,
+    "total": 50
+  },
+  "svd_rank1frac_weighted_a0.05": {
+    "accuracy": 46.0,
+    "correct": 23,
+    "total": 50
+  }
+}
