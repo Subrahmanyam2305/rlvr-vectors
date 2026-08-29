@@ -180,7 +180,7 @@ Our analysis suggests a natural approach: extract the steering component $u_l$ f
 For each transformer block $l$, we:
 1. Compute $\Delta W_{l,m}$ for projection $m \in \{\text{o\_proj}, \text{down\_proj}\}$
 2. Extract the dominant left singular vector $u_{l,m}$ and singular value $\sigma_{l,m}$ from each
-3. Resolve sign ambiguity by orienting each $u_{l,m}$ to have positive cosine with the mean-difference vector at that layer (requires calibration data)
+3. Resolve sign ambiguity by orienting each $u_{l,m}$ individually using $\operatorname{sign}(\mathbb{E}[v_{l,m}^T x_{\text{src}}])$ on source base model calibration inputs ("source-gate orientation"; requires one calibration pass on the source base model)
 4. Combine into a per-block steering vector: $s_l = \frac{\sum_m \sigma_{l,m} u_{l,m}}{\|\sum_m \sigma_{l,m} u_{l,m}\|}$
 5. At inference, apply to the residual stream after transformer block $l$:
 
