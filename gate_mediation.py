@@ -103,10 +103,11 @@ def collect_proj_gate_stats(model_id, proj_svd, problems, label):
 
     hooks = []
     def make_hook(pn):
-        v = proj_svd[pn]["v"].float()
+        v_cpu = proj_svd[pn]["v"].float()
         def fn(mod, inp, out):
-            x = inp[0].detach().float()          # (1, seq, d_in)
-            gates = (x[0] @ v).tolist()          # (seq,)
+            x = inp[0].detach().float().cpu()      # (1, seq, d_in)
+            v = v_cpu.to(x.device)
+            gates = (x[0] @ v).tolist()            # (seq,)
             per_prob[pn].append(float(np.mean(gates)))
             all_tokens[pn].extend(gates)
         return fn

@@ -55,10 +55,11 @@ def collect_prompt_gates(model, tokenizer, problems, proj_svd):
     hooks = []
 
     def make_hook(param_name):
-        v = proj_svd[param_name]["v"].float()
+        v_cpu = proj_svd[param_name]["v"].float()
         def fn(mod, inp, out):
-            x = inp[0].detach().float()   # (1, seq, d_in)
-            gates = (x[0] @ v).tolist()   # (seq,) — prompt tokens
+            x = inp[0].detach().float().cpu()          # (1, seq, d_in) on CPU
+            v = v_cpu.to(x.device)
+            gates = (x[0] @ v).tolist()                # (seq,) — prompt tokens
             stores[param_name].append(float(np.mean(gates)))
         return fn
 
