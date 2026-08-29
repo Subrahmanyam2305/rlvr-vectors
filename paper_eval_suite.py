@@ -216,12 +216,12 @@ def get_mean_diff_vectors(calib_problems):
 # ── Steering application ───────────────────────────────────────────────────────
 def apply_svd_steering(model, tokenizer, problems, layer_vecs, alpha, label,
                        top_k=None, sign_flip=False, random_seed=None,
-                       wrong_layer=False) -> dict:
+                       wrong_layer_seed=None) -> dict:
     """
     Apply SVD-derived residual steering.
-    sign_flip    : negate all u (sign-flip control)
-    random_seed  : if set, replace u with random unit vector (null control)
-    wrong_layer  : permute vectors among the active K layers (wrong-layer control)
+    sign_flip        : negate all u (sign-flip control)
+    random_seed      : if set, replace u with random unit vector (null control)
+    wrong_layer_seed : if set, permute vectors among active K layers using this seed
     """
     sigma_max = max(d["sigma"] for d in layer_vecs.values())
 
@@ -245,16 +245,16 @@ def apply_svd_steering(model, tokenizer, problems, layer_vecs, alpha, label,
             u = u / (u.norm() + 1e-8)
         vec_map[li] = (u, w)
 
-    # Wrong-layer: permute vectors among the same active positions
-    if wrong_layer and len(active) > 1:
-        rng_py = random.Random(42)
+    # Wrong-layer: permute vectors among active positions using given seed
+    if wrong_layer_seed is not None and len(active) > 1:
+        rng_py = random.Random(wrong_layer_seed)
         shuffled = active.copy()
         rng_py.shuffle(shuffled)
         new_map = {}
         for orig, shuf in zip(active, shuffled):
             u_shuf, _ = vec_map[shuf]
             _, w_orig = vec_map[orig]
-            new_map[orig] = (u_shuf, w_orig)  # keep original layer weight
+            new_map[orig] = (u_shuf, w_orig)
         vec_map = new_map
 
     hooks = []
@@ -412,20 +412,12 @@ def main():
     print(f"  Random signs: mean={np.mean(sign_accs):.1f}%  "
           f"std={np.std(sign_accs):.1f}%", flush=True)
 
-    # 6c: Wrong-layer (permuted vectors among top-K positions)
+    # 6c: Wrong-layer (permuted vectors among top-K positions), distinct seed each draw
     wrong_accs = []
     for seed in range(N_NULL_SEEDS):
-        ranked = sorted(svd_vecs, key=lambda i: svd_vecs[i]["sigma"], reverse=True)
-        active = ranked[:best_k]
-        rng = random.Random(seed)
-        shuffled = active.copy(); rng.shuffle(shuffled)
-        permuted = dict(svd_vecs)
-        for orig, shuf in zip(active, shuffled):
-            # Keep original layer's sigma weight, use shuffled layer's u vector
-            permuted[orig] = {"u": svd_vecs[shuf]["u"],
-                              "sigma": svd_vecs[orig]["sigma"]}
-        r = apply_svd_steering(model, tok, test, permuted, best_svd_a,
-                               f"test_wronglayer_s{seed}", top_k=best_k)
+        r = apply_svd_steering(model, tok, test, svd_vecs, best_svd_a,
+                               f"test_wronglayer_s{seed}", top_k=best_k,
+                               wrong_layer_seed=seed)
         wrong_accs.append(r["accuracy"])
         results[r["label"]] = r
     print(f"  Wrong-layer:  mean={np.mean(wrong_accs):.1f}%  "

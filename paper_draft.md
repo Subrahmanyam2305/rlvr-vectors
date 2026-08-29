@@ -6,7 +6,7 @@
 
 ## Abstract
 
-Reinforcement Learning with Verifiable Rewards (RLVR) has emerged as a powerful paradigm for improving mathematical reasoning in large language models. Recent work has shown that RLVR concentrates learned reasoning capabilities in low-rank weight updates, raising the question of whether these "reasoning vectors" can be extracted and transferred to different models without retraining. In this work, we analyze cross-model rank-1 weight transfer and show that it is mathematically equivalent to *input-conditional activation steering* (Proposition 1). We demonstrate empirically that this conditioning mechanism degrades across models due to a 61% magnitude reduction and 10% polarity inversion in the gating signal, suggesting it may contribute to why weight-space transfer achieves only +2 percentage points while activation-space steering achieves +14 percentage points. Guided by this analysis, we propose SVD-derived activation steering, which extracts principled steering vectors directly from RLVR weight deltas without requiring source-model inference at deployment. Experiments on MATH500 with Qwen2.5-1.5B models show that sparse top-K SVD steering achieves +10 percentage-point improvement, approaching empirical mean-difference steering (+14 pp) while requiring no source-model inference at deployment. Both methods require a calibration pass for sign orientation; SVD avoids the more expensive two-model forward pass that mean-difference needs for vector extraction.
+Reinforcement Learning with Verifiable Rewards (RLVR) has emerged as a powerful paradigm for improving mathematical reasoning in large language models. Recent work has shown that RLVR concentrates learned reasoning capabilities in low-rank weight updates, raising the question of whether these "reasoning vectors" can be extracted and transferred to different models without retraining. In this work, we analyze cross-model rank-1 weight transfer and show that it is mathematically equivalent to *input-conditional activation steering* (Proposition 1). We present exploratory empirical results suggesting the conditioning mechanism degrades across models. Guided by this analysis, we propose SVD-derived activation steering, which extracts principled steering vectors from RLVR weight deltas. Preliminary experiments on MATH500 with Qwen2.5-1.5B models show promising results; clean held-out evaluations with proper statistical tests are in progress.
 
 ---
 
@@ -18,7 +18,7 @@ This observation raises a natural question: *Can we extract these reasoning dire
 
 In this paper, we investigate this question through formal analysis and empirical study. Our contributions are:
 
-1. **Spectral characterization:** Reproducing and extending the finding of [3], we verify that RLVR reasoning resides in low-rank structure. The source base model scores 34%, full RLVR achieves 72% (+38 points), and applying only the rank-1 SVD component recovers 65% — capturing 31 of those 38 points (81.6%) in a single direction per layer. Across 198 parameter matrices in 28 transformer blocks, rank-1 concentrates a mean 25.8% of weight delta energy (400× above random matrix expectation), with key attention layers reaching 87.1%.
+1. **Spectral characterization:** Reproducing and extending the finding of [3], we verify that RLVR reasoning resides in low-rank structure. The source base model scores 34%, full RLVR achieves 72% (+38 points), and applying only the rank-1 SVD component recovers 65% — capturing 31 of those 38 points (81.6%) in a single direction per layer. Across 198 parameter matrices in 28 transformer blocks, rank-1 concentrates a mean 25.8% of weight delta energy; shape-matched empirical null distributions show this is 40–80× above what a random Gaussian matrix of the same shape would produce (varies by matrix shape; see Appendix A).
 
 2. **Low-rank forward identity:** We show that applying a rank-1 weight delta to a linear layer is equivalent to input-conditional activation steering (Proposition 1), where the steering magnitude depends on alignment between the input and a learned "trigger direction." This is a local, per-layer identity; SVD-derived steering at the residual stream is a heuristic *motivated by* this identity but is not equivalent to it.
 
@@ -143,29 +143,29 @@ The rank-1 approximation applied back to the **source** model recovers 65% accur
 
 ### 5.3 Gating Signal Analysis
 
-We measure the gating signal statistics across 196 analyzed parameter matrices (2 are excluded as their weight deltas are below $10^{-8}$, producing no meaningful SVD). Activations are collected over calibration problems using prompt tokens; generation-time behavior may differ.
+We measure gate statistics across the 56 `o_proj` and `down_proj` parameter matrices where both SVD and calibration activations are available. We collect per-problem mean gate values using the same 50 calibration problems on both source and target models (prompt tokens only), giving **paired** per-problem statistics.
 
 | Metric | Value |
 |--------|-------|
-| Mean ratio $\|v^T x^{\text{tgt}}\| / \|v^T x^{\text{src}}\|$ | 0.39 |
-| Sign agreement (same sign src vs tgt) | 90% |
+| Mean ratio $\|v^T x^{\text{tgt}}\|_{\text{prompt}} / \|v^T x^{\text{src}}\|_{\text{prompt}}$ (paired) | ~0.39 |
+| Paired prompt-level sign agreement | ~90% |
 
-The gating signal on the target model is reduced to 39% of its source magnitude on average, with 10% of matrices exhibiting polarity inversion. This is **consistent with** Hypothesis 1 and suggests gate mismatch as a contributing factor in transfer failure. Recalibrated transfer experiments (Section 8.2) indicate that gate correction alone does not fully recover performance, suggesting additional factors are at play.
+*Final values from `outputs/gate_analysis.json` after running `gate_analysis.py`.*
+
+Generation-time gate statistics are reported separately in `gate_analysis.json` as an unpaired distribution (generated sequences differ between models).
 
 ### 5.4 Weight Transfer vs. Activation Steering
 
-All conditions below use the same 400-problem test set and greedy decoding. Wilson 95% confidence intervals are reported.
+**Note: The table below contains preliminary results from small-n runs with potentially overlapping calibration/evaluation sets. These will be superseded by clean-split n=400 results in Appendix B once `paper_eval_suite.py` completes. Numbers should not be cited from this table.**
 
-| Method | n | Accuracy | 95% CI | Δ (pp) |
-|--------|---|----------|--------|--------|
-| Target baseline | 400 | 48.5% | [43.7, 53.3] | — |
-| Weight transfer (rank-1, best $\alpha$) | 400 | ~50% | — | +2 |
-| Weight transfer (recalibrated, scaled) | 50* | 50% | — | +4 |
-| Activation steering, mean-diff (best $\alpha$) | 400 | ~62% | — | +14 |
+| Method | n | Baseline | Acc | Δ (pp) | Note |
+|--------|---|----------|-----|--------|------|
+| Target baseline | ~100 | — | ~48% | — | n=100, problems 0–99 |
+| Weight transfer (rank-1, best α) | ~100 | ~48% | ~50% | ~+2 | Preliminary |
+| Weight transfer (recalibrated) | ~50 | ~46% | ~50% | ~+4 | Different subset |
+| Activation steering, mean-diff | ~50 | ~46% | ~60% | ~+14 | Different subset |
 
-*Recalibrated transfer evaluated on n=50 subset; direct comparison with main results requires caution.
-
-**Note:** The final numbers in this table will be updated with results from `paper_eval_suite.py` (see Appendix B). Values above are preliminary and may carry ±7 pp uncertainty at n=50.
+These results use different subsets and baselines and should not be directly compared in the same table. All conditions will share identical problems, grader, and baseline in Appendix B.
 
 ---
 

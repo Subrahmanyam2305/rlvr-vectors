@@ -25,7 +25,9 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.gridspec import GridSpec
 
-OUTPUT_DIR = Path("/home/ubuntu/rlvr-vectors/outputs")
+# Resolve paths relative to this script's location
+SCRIPT_DIR  = Path(__file__).parent
+OUTPUT_DIR  = SCRIPT_DIR / "outputs"
 
 
 def load_json(path):
@@ -141,7 +143,7 @@ def fig2_alpha_sweep():
     ax.axhline(baseline, color="gray", ls=":", lw=1.5, label=f"Baseline ({baseline:.0f}%)")
     ax.set_xlabel("Steering strength  α")
     ax.set_ylabel("Accuracy (%)")
-    ax.set_title("Accuracy vs. Steering Strength  (n=50 VAL)")
+    ax.set_title("Accuracy vs. Steering Strength  (n=50, preliminary — calib/eval overlap)")
     ax.legend(fontsize=9)
     ax.set_ylim(0, 75)
     # Note: SVD x-axis and MD x-axis are very different scales
@@ -163,7 +165,7 @@ def fig2_alpha_sweep():
     ax2.axhline(best_md, color="#E15759", ls="-.", lw=1.5,
                 label=f"Mean-diff best ({best_md:.0f}%)")
     ax2.set_ylabel("Accuracy (%)")
-    ax2.set_title("Top-K Layer Sparsity Ablation  (n=50 VAL)")
+    ax2.set_title("Top-K Layer Sparsity Ablation  (n=50, preliminary — calib/eval overlap)")
     ax2.legend(fontsize=9)
     ax2.set_ylim(0, 75)
 

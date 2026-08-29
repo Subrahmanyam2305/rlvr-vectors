@@ -18,12 +18,16 @@ import numpy as np
 from pathlib import Path
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-# math-verify for symbolic answer equivalence
+# math-verify for symbolic answer equivalence — hard requirement
 try:
     from math_verify import parse as mv_parse, verify as mv_verify
     MATH_VERIFY_AVAILABLE = True
-except ImportError:
-    MATH_VERIFY_AVAILABLE = False
+except ImportError as _mv_err:
+    raise ImportError(
+        "math-verify is required for correct symbolic answer comparison. "
+        "Install it with: pip install math-verify\n"
+        f"Original error: {_mv_err}"
+    ) from _mv_err
 
 DATA_DIR = Path("/home/ubuntu/rlvr-vectors/data")
 OUTPUT_DIR = Path("/home/ubuntu/rlvr-vectors/outputs")
@@ -108,7 +112,7 @@ def answers_match(pred: str, gold: str) -> bool:
             if p_parsed is not None and g_parsed is not None:
                 return bool(mv_verify(g_parsed, p_parsed))
         except Exception:
-            pass
+            pass  # fall through to string/numeric
 
     # Fallback: string / numeric
     pred_n = _normalize_fallback(pred)

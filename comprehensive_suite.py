@@ -1,12 +1,16 @@
 """
-Comprehensive Experiment Suite — minimum publishable package per reviewer:
+Comprehensive Experiment Suite — minimum publishable package:
 
   1. Multi-source × multi-target evaluation matrix
-  2. Sign-orientation ablation (6 conditions × calibration size sweep)
-  3. Direct causal test of gate-mismatch hypothesis
-  4. Matched-scope intervention ablation (same modules, different conditioning)
-  5. GSM8K evaluation for generalization (no retuning)
-  6. Additional per-subject/difficulty analysis
+     NOTE: Only two RLVR checkpoints available (1shot-pi1 and 1200-step duration
+     ablation — NOT an independent seed). Only one cross-model target (Instruct)
+     plus same-model self-transfer. Described honestly as one cross-model setting
+     with a training-duration ablation.
+  2. Sign-orientation ablation (3 orientations × 5 calibration sizes)
+     NOTE: Fixed alpha=0.5 used as diagnostic; does not select per-orientation.
+     This shows sensitivity to orientation choice at fixed intervention strength.
+  3. Matched-scope intervention ablation
+  4. GSM8K for out-of-distribution generalization
 """
 
 import torch, json, gc, os, random
@@ -284,13 +288,15 @@ def main():
 
     # ── Part A: Multi-source × multi-target matrix ─────────────────────────
     print("\n[PART A] Multi-source × multi-target matrix", flush=True)
+    print("  Sources: 1shot-pi1 (primary) + 1200-step (duration ablation, same recipe)", flush=True)
+    print("  Targets: Qwen2.5-1.5B-Instruct (cross-model) + Math-1.5B (self-transfer)", flush=True)
     source_pairs = [
         ("rlvr_oneshot",  "math_base", "1shot-pi1"),
-        ("rlvr_1200step", "math_base", "1200step"),
+        ("rlvr_1200step", "math_base", "1200step-ablation"),
     ]
     target_ids = [
         ("instruct",      "Qwen2.5-1.5B-Instruct"),
-        ("math_base_tgt", "Qwen2.5-Math-1.5B (self)"),
+        ("math_base_tgt", "Qwen2.5-Math-1.5B (self-transfer)"),
     ]
 
     for src_key, base_key, src_label in source_pairs:
@@ -344,10 +350,11 @@ def main():
 
             del model; gc.collect(); torch.cuda.empty_cache()
 
-    # ── Part B: Sign-orientation ablation ──────────────────────────────────
-    print("\n[PART B] Sign-orientation ablation", flush=True)
+    # ── Part B: Sign-orientation ablation (diagnostic at fixed alpha=0.5) ──
+    print("\n[PART B] Sign-orientation ablation (fixed alpha=0.5, diagnostic)", flush=True)
+    print("  NOTE: alpha is not retuned per orientation — this is a fixed-strength", flush=True)
+    print("  diagnostic showing sensitivity to orientation choice.", flush=True)
     orientation_labels = ["none", "weight_only", "source_gate"]
-    # Also vary calib size
     calib_sizes = [1, 5, 10, 25, 50]
 
     model = AutoModelForCausalLM.from_pretrained(
@@ -369,8 +376,23 @@ def main():
 
     del model; gc.collect(); torch.cuda.empty_cache()
 
-    # ── Part C: Numerical gate equivalence ─────────────────────────────────
-    print("\n[PART C] Numerical equivalence: rank-1 weight ≡ σ(v^T x)u", flush=True)
+    # ── Part C: Matched-scope intervention ablation ──────────────────────────
+    print("\n[PART C] Matched-scope ablation (primary source->instruct pair)...", flush=True)
+    svd_primary  = get_svd_vectors_for_pair(MODELS["rlvr_oneshot"], MODELS["math_base"],
+                                            calib, "source_gate")
+    md_primary   = get_meandiff_for_pair(MODELS["rlvr_oneshot"], MODELS["math_base"], calib)
+    model_ms = AutoModelForCausalLM.from_pretrained(
+        MODELS["instruct"], torch_dtype=torch.float16, device_map="auto")
+    tok_ms = AutoTokenizer.from_pretrained(MODELS["instruct"])
+    tok_ms.pad_token = tok_ms.eos_token
+    scope_results = matched_scope_ablation(
+        model_ms, tok_ms, test, svd_primary, None, md_primary,
+        best_alpha=0.5, best_md_alpha=0.05, label_prefix="scope")
+    all_results.update(scope_results)
+    del model_ms; gc.collect(); torch.cuda.empty_cache()
+
+    # ── Part D: Numerical gate equivalence ──────────────────────────────────
+    print("\n[PART D] Numerical gate equivalence verification...", flush=True)
     model = AutoModelForCausalLM.from_pretrained(
         MODELS["math_base"], torch_dtype=torch.float16, device_map="auto")
     tok_b = AutoTokenizer.from_pretrained(MODELS["math_base"])
@@ -381,9 +403,9 @@ def main():
     print(f"  Max  logit diff: {equiv['max_logit_diff']:.2e}")
     del model; gc.collect(); torch.cuda.empty_cache()
 
-    # ── Part D: GSM8K generalization ───────────────────────────────────────
+    # ── Part E: GSM8K generalization ──────────────────────────────────────
     if gsm8k:
-        print(f"\n[PART D] GSM8K generalization (n={len(gsm8k)})...", flush=True)
+        print(f"\n[PART E] GSM8K generalization (n={len(gsm8k)})...", flush=True)
         svd_v  = get_svd_vectors_for_pair(MODELS["rlvr_oneshot"], MODELS["math_base"],
                                           calib, "source_gate")
         md_v   = get_meandiff_for_pair(MODELS["rlvr_oneshot"], MODELS["math_base"], calib)
