@@ -1,34 +1,24 @@
 """
-Paper Evaluation Suite — addressing all reviewer concerns:
-
-  1. Disjoint splits: CALIB=450-499, VAL=400-449, TEST=0-399
-  2. Two-phase protocol: select alpha on VAL, report on TEST
-  3. SVD sign disambiguation via cosine alignment with mean-diff direction
-  4. Item-level predictions saved for paired bootstrap tests
-  5. Random-steering control with matched per-layer norms
-  6. Sign-flip control for SVD vectors
-  7. Unified evaluator (shared_eval.py)
-
-Runtime estimate: ~14 hours total on a single GPU (1.5B model, n=400 test).
-Run inside tmux so it survives disconnections.
+Paper Evaluation Suite — all reviewer fixes applied:
+  1. SVD sign orientation: orient each u_{l,m} BEFORE combining via sign(E[v^T x])
+  2. Wrong-layer control: keep active layers fixed, permute only vectors
+  3. 20-seed null controls (random dirs, random layer rankings, random signs)
+  4. McNemar primary test + bootstrap CIs
+  5. math-verify evaluator (via shared_eval)
+  6. Disjoint splits: CALIB=450-499, VAL=400-449, TEST=0-399
 """
-
-import torch
-import numpy as np
-import json
-import gc
-import os
+import torch, numpy as np, json, gc, os, random
 from pathlib import Path
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from huggingface_hub import snapshot_download
 from safetensors import safe_open
-
 from shared_eval import (
-    load_math500_split, evaluate, bootstrap_ci, exact_ci_wilson,
-    print_result_row, OUTPUT_DIR
+    load_math500_split, evaluate, mcnemar_test, bootstrap_ci,
+    wilson_ci, print_result_row, make_prompt, OUTPUT_DIR
 )
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+N_NULL_SEEDS = 20
 
 MODELS = {
     "math_base": "Qwen/Qwen2.5-Math-1.5B",
@@ -37,453 +27,471 @@ MODELS = {
 }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# SVD vector extraction
-# ─────────────────────────────────────────────────────────────────────────────
-
-def get_svd_vectors(orient_with_mean_diff: dict | None = None) -> dict:
+# ── Layer-input hook collector ─────────────────────────────────────────────────
+def collect_proj_inputs(model, tokenizer, problems, target_modules):
     """
-    Extract per-layer combined SVD steering vectors from RLVR weight deltas.
-
-    orient_with_mean_diff: if provided (layer_idx -> tensor), each u vector is
-      flipped if its cosine with the mean-diff vector is negative.  This
-      resolves the SVD sign ambiguity in a principled, data-driven way.
+    Collect mean input activation (averaged over tokens and problems)
+    for each named linear projection in target_modules.
+    Returns dict: full_module_name -> mean_input_tensor (cpu, float32)
     """
-    print("[SVD] Computing per-layer SVD steering vectors...", flush=True)
-    base_path  = snapshot_download(MODELS["math_base"])
-    rlvr_path  = snapshot_download(MODELS["rlvr"])
+    model.eval()
+    stores = {}
+    hooks = []
+
+    def make_hook(name):
+        def fn(module, inp, out):
+            x = inp[0].detach().float()          # (batch, seq, d_in)
+            mean_x = x.mean(dim=(0, 1)).cpu()    # (d_in,)
+            stores.setdefault(name, []).append(mean_x)
+        return fn
+
+    for name, module in model.named_modules():
+        if name in target_modules:
+            hooks.append(module.register_forward_hook(make_hook(name)))
+
+    for prob in problems:
+        text = make_prompt(tokenizer, prob["problem"])
+        inp = tokenizer(text, return_tensors="pt",
+                        truncation=True, max_length=512).to(model.device)
+        with torch.no_grad():
+            model(**inp)
+
+    for h in hooks:
+        h.remove()
+
+    return {name: torch.stack(vecs).mean(0) for name, vecs in stores.items()}
+
+
+# ── SVD extraction with per-projection sign orientation ───────────────────────
+def get_svd_vectors(calib_problems, orientation="source_gate"):
+    """
+    Extract per-layer combined SVD steering vectors.
+
+    orientation choices:
+      'source_gate'  — sign(E[v^T x]) using source base model inputs (default)
+      'weight_only'  — flip u so its max-abs coordinate is positive (no data)
+      'none'         — raw PyTorch SVD sign (baseline for sign ablation)
+    """
+    print(f"[SVD] Computing vectors (orientation={orientation})...", flush=True)
+    base_path = snapshot_download(MODELS["math_base"])
+    rlvr_path = snapshot_download(MODELS["rlvr"])
 
     base_index, rlvr_index = {}, {}
     for f in sorted(Path(base_path).glob("*.safetensors")):
         with safe_open(str(f), framework="pt", device="cpu") as sf:
-            for key in sf.keys():
-                base_index[key] = str(f)
+            for k in sf.keys(): base_index[k] = str(f)
     for f in sorted(Path(rlvr_path).glob("*.safetensors")):
         with safe_open(str(f), framework="pt", device="cpu") as sf:
-            for key in sf.keys():
-                rlvr_index[key] = str(f)
+            for k in sf.keys(): rlvr_index[k] = str(f)
 
-    target_suffixes = ["self_attn.o_proj.weight", "mlp.down_proj.weight"]
-    layer_data: dict[int, dict] = {}
+    TARGET_SUFFIXES = ["self_attn.o_proj.weight", "mlp.down_proj.weight"]
+    proj_svd = {}  # param_name -> {u, sigma, v, layer_idx}
 
     for param_name in sorted(base_index):
-        if not any(param_name.endswith(s) for s in target_suffixes):
+        if not any(param_name.endswith(s) for s in TARGET_SUFFIXES):
             continue
         if param_name not in rlvr_index:
             continue
-
         with safe_open(base_index[param_name], framework="pt", device="cpu") as sf:
             w_base = sf.get_tensor(param_name).float()
         with safe_open(rlvr_index[param_name], framework="pt", device="cpu") as sf:
             w_rlvr = sf.get_tensor(param_name).float()
-
-        if w_base.dim() != 2:
-            continue
+        if w_base.dim() != 2: continue
         dW = w_rlvr - w_base
-        if dW.norm().item() < 1e-8:
-            continue
+        if dW.norm().item() < 1e-8: continue
 
-        U, S, _ = torch.linalg.svd(dW, full_matrices=False)
-        u = U[:, 0].clone()
-        sigma = S[0].item()
-
+        U, S, Vt = torch.linalg.svd(dW, full_matrices=False)
         layer_idx = int(param_name.split(".")[2])
-
-        if layer_idx not in layer_data:
-            layer_data[layer_idx] = {"vecs": [], "sigs": []}
-        layer_data[layer_idx]["vecs"].append(u)
-        layer_data[layer_idx]["sigs"].append(sigma)
-
-        del w_base, w_rlvr, dW, U, S
-
+        proj_svd[param_name] = {
+            "u": U[:, 0].clone(),
+            "sigma": S[0].item(),
+            "v": Vt[0].clone(),          # v (right singular vector, shape d_in)
+            "layer_idx": layer_idx,
+        }
+        del w_base, w_rlvr, dW, U, S, Vt
     gc.collect()
+    print(f"[SVD] Got SVD for {len(proj_svd)} projections.", flush=True)
+
+    # ── Orientation ──────────────────────────────────────────────────────────
+    if orientation == "source_gate":
+        # Collect source-model input activations for each target projection
+        print("[SVD] Loading source model for gate orientation...", flush=True)
+        src_model = AutoModelForCausalLM.from_pretrained(
+            MODELS["math_base"], torch_dtype=torch.float16, device_map="auto")
+        src_tok = AutoTokenizer.from_pretrained(MODELS["math_base"])
+        src_tok.pad_token = src_tok.eos_token
+
+        # Map param_name to module name (strip ".weight")
+        target_mod_names = {n[: -len(".weight")] for n in proj_svd}
+        mean_inputs = collect_proj_inputs(src_model, src_tok,
+                                          calib_problems, target_mod_names)
+        del src_model; gc.collect(); torch.cuda.empty_cache()
+
+        flipped = 0
+        for param_name, data in proj_svd.items():
+            mod_name = param_name[: -len(".weight")]
+            if mod_name not in mean_inputs:
+                continue
+            x_mean = mean_inputs[mod_name]            # (d_in,)
+            v = data["v"]                              # (d_in,)
+            gate_sign = torch.dot(v.float(), x_mean.float()).sign().item()
+            if gate_sign < 0:
+                data["u"] = -data["u"]
+                data["v"] = -data["v"]
+                flipped += 1
+        print(f"[SVD] Source-gate orientation: flipped {flipped}/{len(proj_svd)}", flush=True)
+
+    elif orientation == "weight_only":
+        flipped = 0
+        for data in proj_svd.values():
+            u = data["u"]
+            if u[u.abs().argmax()].item() < 0:
+                data["u"] = -data["u"]
+                flipped += 1
+        print(f"[SVD] Weight-only orientation: flipped {flipped}/{len(proj_svd)}", flush=True)
+
+    # ── Combine per-layer ────────────────────────────────────────────────────
+    layer_data = {}
+    for param_name, data in proj_svd.items():
+        li = data["layer_idx"]
+        layer_data.setdefault(li, {"vecs": [], "sigs": []})
+        layer_data[li]["vecs"].append(data["u"])
+        layer_data[li]["sigs"].append(data["sigma"])
 
     combined = {}
-    flipped = 0
-    total = 0
-    for layer_idx, data in layer_data.items():
-        vecs, sigs = data["vecs"], data["sigs"]
-        total_sigma = sum(sigs)
-        u_comb = sum(s * v for s, v in zip(sigs, vecs)) / total_sigma
+    for li, d in layer_data.items():
+        total_sig = sum(d["sigs"])
+        u_comb = sum(s * v for s, v in zip(d["sigs"], d["vecs"])) / total_sig
         u_comb = u_comb / (u_comb.norm() + 1e-8)
+        combined[li] = {"u": u_comb, "sigma": total_sig}
 
-        # Sign disambiguation: align with mean-diff direction if available
-        if orient_with_mean_diff and layer_idx in orient_with_mean_diff:
-            ref = orient_with_mean_diff[layer_idx]
-            ref = ref / (ref.norm() + 1e-8)
-            if torch.dot(u_comb, ref.to(u_comb)) < 0:
-                u_comb = -u_comb
-                flipped += 1
-        total += 1
-
-        combined[layer_idx] = {"u": u_comb, "sigma": total_sigma}
-
-    print(f"[SVD] {len(combined)} layers. Sign flips applied: {flipped}/{total}", flush=True)
+    print(f"[SVD] Combined into {len(combined)} per-layer vectors.", flush=True)
     return combined
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Mean-difference vectors (requires source model inference)
-# ─────────────────────────────────────────────────────────────────────────────
-
-def collect_hidden_states(model, tokenizer, problems) -> dict:
-    """Collect mean hidden state (over tokens and problems) after each transformer layer."""
-    from shared_eval import make_prompt
+# ── Mean-difference vectors ────────────────────────────────────────────────────
+def collect_residual_states(model, tokenizer, problems):
     model.eval()
-    stores: dict[int, list] = {}
+    stores = {}
     hooks = []
-
-    def make_hook(layer_idx):
-        def hook_fn(module, inp, out):
+    def make_hook(li):
+        def fn(mod, inp, out):
             h = out[0] if isinstance(out, tuple) else out
-            stores.setdefault(layer_idx, []).append(
-                h.detach().float().mean(dim=(0, 1)).cpu()
-            )
-        return hook_fn
-
-    for name, module in model.named_modules():
-        if hasattr(module, "self_attn") and hasattr(module, "mlp"):
-            for part in name.split("."):
+            stores.setdefault(li, []).append(h.detach().float().mean(dim=(0,1)).cpu())
+        return fn
+    for name, mod in model.named_modules():
+        if hasattr(mod, "self_attn") and hasattr(mod, "mlp"):
+            for p in name.split("."):
                 try:
-                    layer_idx = int(part)
-                    hooks.append(module.register_forward_hook(make_hook(layer_idx)))
+                    li = int(p)
+                    hooks.append(mod.register_forward_hook(make_hook(li)))
                     break
-                except ValueError:
-                    continue
-
+                except ValueError: continue
     for prob in problems:
         text = make_prompt(tokenizer, prob["problem"])
-        inputs = tokenizer(text, return_tensors="pt",
-                           truncation=True, max_length=512).to(model.device)
-        with torch.no_grad():
-            model(**inputs)
-
-    for h in hooks:
-        h.remove()
-
-    return {idx: torch.stack(vecs).mean(0) for idx, vecs in stores.items()}
+        inp = tokenizer(text, return_tensors="pt", truncation=True, max_length=512).to(model.device)
+        with torch.no_grad(): model(**inp)
+    for h in hooks: h.remove()
+    return {li: torch.stack(vs).mean(0) for li, vs in stores.items()}
 
 
-def get_mean_diff_vectors(calib_problems) -> dict:
-    print("[MEANDIFF] Collecting source base hidden states...", flush=True)
-    src = AutoModelForCausalLM.from_pretrained(
-        MODELS["math_base"], torch_dtype=torch.float16, device_map="auto")
-    tok = AutoTokenizer.from_pretrained(MODELS["math_base"])
-    tok.pad_token = tok.eos_token
-    src_states = collect_hidden_states(src, tok, calib_problems)
+def get_mean_diff_vectors(calib_problems):
+    print("[MEANDIFF] Source base...", flush=True)
+    src = AutoModelForCausalLM.from_pretrained(MODELS["math_base"], torch_dtype=torch.float16, device_map="auto")
+    tok = AutoTokenizer.from_pretrained(MODELS["math_base"]); tok.pad_token = tok.eos_token
+    src_st = collect_residual_states(src, tok, calib_problems)
     del src; gc.collect(); torch.cuda.empty_cache()
 
-    print("[MEANDIFF] Collecting RLVR hidden states...", flush=True)
-    rlvr = AutoModelForCausalLM.from_pretrained(
-        MODELS["rlvr"], torch_dtype=torch.float16, device_map="auto")
-    tok2 = AutoTokenizer.from_pretrained(MODELS["rlvr"])
-    tok2.pad_token = tok2.eos_token
-    rlvr_states = collect_hidden_states(rlvr, tok2, calib_problems)
+    print("[MEANDIFF] RLVR model...", flush=True)
+    rlvr = AutoModelForCausalLM.from_pretrained(MODELS["rlvr"], torch_dtype=torch.float16, device_map="auto")
+    tok2 = AutoTokenizer.from_pretrained(MODELS["rlvr"]); tok2.pad_token = tok2.eos_token
+    rlvr_st = collect_residual_states(rlvr, tok2, calib_problems)
     del rlvr; gc.collect(); torch.cuda.empty_cache()
 
-    diff = {idx: rlvr_states[idx] - src_states[idx]
-            for idx in src_states if idx in rlvr_states}
-    print(f"[MEANDIFF] Got vectors for {len(diff)} layers", flush=True)
+    diff = {li: rlvr_st[li] - src_st[li] for li in src_st if li in rlvr_st}
+    print(f"[MEANDIFF] {len(diff)} layers.", flush=True)
     return diff
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Steering application
-# ─────────────────────────────────────────────────────────────────────────────
-
-def apply_residual_steering(model, tokenizer, problems, layer_vectors,
-                             alpha, label, top_k=None,
-                             sign_flip=False, randomize=False) -> dict:
+# ── Steering application ───────────────────────────────────────────────────────
+def apply_svd_steering(model, tokenizer, problems, layer_vecs, alpha, label,
+                       top_k=None, sign_flip=False, random_seed=None,
+                       wrong_layer=False) -> dict:
     """
-    Apply steering vectors at the residual stream (after each transformer block).
-
-    sign_flip  : if True, negate all u vectors (sign-flip control)
-    randomize  : if True, replace each u with a random unit vector of the same
-                 norm (matched-norm random control)
+    Apply SVD-derived residual steering.
+    sign_flip    : negate all u (sign-flip control)
+    random_seed  : if set, replace u with random unit vector (null control)
+    wrong_layer  : permute vectors among the active K layers (wrong-layer control)
     """
-    hooks = []
-    sigma_max = max(d["sigma"] for d in layer_vectors.values())
+    sigma_max = max(d["sigma"] for d in layer_vecs.values())
 
+    # Determine active layers
     if top_k:
-        ranked = sorted(layer_vectors, key=lambda i: layer_vectors[i]["sigma"], reverse=True)
-        active = set(ranked[:top_k])
+        ranked = sorted(layer_vecs, key=lambda i: layer_vecs[i]["sigma"], reverse=True)
+        active = ranked[:top_k]
     else:
-        active = set(layer_vectors)
+        active = list(layer_vecs.keys())
 
-    for name, module in model.named_modules():
-        if not (hasattr(module, "self_attn") and hasattr(module, "mlp")):
-            continue
-        layer_idx = None
-        for part in name.split("."):
-            try:
-                layer_idx = int(part)
-                break
-            except ValueError:
-                continue
-        if layer_idx is None or layer_idx not in active:
-            continue
-
-        data = layer_vectors[layer_idx]
-        u = data["u"].clone()
-
-        if randomize:
-            u = torch.randn_like(u)
-            u = u / (u.norm() + 1e-8)
-        elif sign_flip:
+    # Build {layer_idx: (u_vector, weight)} map
+    vec_map = {}
+    for li in active:
+        u = layer_vecs[li]["u"].clone()
+        w = layer_vecs[li]["sigma"] / sigma_max
+        if sign_flip:
             u = -u
+        if random_seed is not None:
+            rng = torch.Generator(); rng.manual_seed(random_seed * 1000 + li)
+            u = torch.randn(u.shape, generator=rng)
+            u = u / (u.norm() + 1e-8)
+        vec_map[li] = (u, w)
 
-        u = u.to(model.device, dtype=model.dtype)
-        weight = data["sigma"] / sigma_max
+    # Wrong-layer: permute vectors among the same active positions
+    if wrong_layer and len(active) > 1:
+        rng_py = random.Random(42)
+        shuffled = active.copy()
+        rng_py.shuffle(shuffled)
+        new_map = {}
+        for orig, shuf in zip(active, shuffled):
+            u_shuf, _ = vec_map[shuf]
+            _, w_orig = vec_map[orig]
+            new_map[orig] = (u_shuf, w_orig)  # keep original layer weight
+        vec_map = new_map
 
-        def make_hook(u_vec, w):
-            def hook_fn(module, inp, out):
+    hooks = []
+    for name, mod in model.named_modules():
+        if not (hasattr(mod, "self_attn") and hasattr(mod, "mlp")): continue
+        li = None
+        for p in name.split("."):
+            try: li = int(p); break
+            except ValueError: continue
+        if li is None or li not in vec_map: continue
+        u, w = vec_map[li]
+        u_dev = u.to(model.device, dtype=model.dtype)
+
+        def make_hook(uv, wt):
+            def fn(mod, inp, out):
                 h = out[0] if isinstance(out, tuple) else out
-                steer = (alpha * w * u_vec).to(h.dtype)
+                steer = (alpha * wt * uv).to(h.dtype)
                 h = h + steer.unsqueeze(0).unsqueeze(0)
                 return (h,) + out[1:] if isinstance(out, tuple) else h
-            return hook_fn
-
-        hooks.append(module.register_forward_hook(make_hook(u, weight)))
+            return fn
+        hooks.append(mod.register_forward_hook(make_hook(u_dev, w)))
 
     result = evaluate(model, tokenizer, problems, label)
-
-    for h in hooks:
-        h.remove()
+    for h in hooks: h.remove()
     return result
 
 
-def apply_meandiff_steering(model, tokenizer, problems, diff_vectors,
-                             alpha, label) -> dict:
+def apply_meandiff_steering(model, tokenizer, problems, diff_vecs, alpha, label) -> dict:
     hooks = []
-    for name, module in model.named_modules():
-        if not (hasattr(module, "self_attn") and hasattr(module, "mlp")):
-            continue
-        layer_idx = None
-        for part in name.split("."):
-            try:
-                layer_idx = int(part)
-                break
-            except ValueError:
-                continue
-        if layer_idx is None or layer_idx not in diff_vectors:
-            continue
+    for name, mod in model.named_modules():
+        if not (hasattr(mod, "self_attn") and hasattr(mod, "mlp")): continue
+        li = None
+        for p in name.split("."):
+            try: li = int(p); break
+            except ValueError: continue
+        if li is None or li not in diff_vecs: continue
+        dv = diff_vecs[li].to(model.device, dtype=model.dtype)
 
-        d = diff_vectors[layer_idx].to(model.device, dtype=model.dtype)
-
-        def make_hook(dv):
-            def hook_fn(module, inp, out):
+        def make_hook(d):
+            def fn(mod, inp, out):
                 h = out[0] if isinstance(out, tuple) else out
-                h = h + (alpha * dv.to(h.dtype)).unsqueeze(0).unsqueeze(0)
+                h = h + (alpha * d.to(h.dtype)).unsqueeze(0).unsqueeze(0)
                 return (h,) + out[1:] if isinstance(out, tuple) else h
-            return hook_fn
-
-        hooks.append(module.register_forward_hook(make_hook(d)))
+            return fn
+        hooks.append(mod.register_forward_hook(make_hook(dv)))
 
     result = evaluate(model, tokenizer, problems, label)
-    for h in hooks:
-        h.remove()
+    for h in hooks: h.remove()
     return result
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Main: two-phase protocol
-# ─────────────────────────────────────────────────────────────────────────────
-
+# ── Main ───────────────────────────────────────────────────────────────────────
 def main():
-    print("=" * 72)
-    print("PAPER EVALUATION SUITE — clean splits, sign-fix, controls")
-    print("=" * 72, flush=True)
-    print()
-    print("Splits:")
-    print("  CALIB : problems 450–499  (steering vector extraction)")
-    print("  VAL   : problems 400–449  (alpha / K selection)")
-    print("  TEST  : problems   0–399  (final reported numbers)")
-    print(flush=True)
+    print("="*72)
+    print("PAPER EVAL SUITE v2 — all reviewer fixes")
+    print("  CALIB=450-499  VAL=400-449  TEST=0-399")
+    print("="*72, flush=True)
 
-    calib_problems = load_math500_split("calib")   # 50 problems
-    val_problems   = load_math500_split("val")     # 50 problems
-    test_problems  = load_math500_split("test")    # 400 problems
+    calib = load_math500_split("calib")
+    val   = load_math500_split("val")
+    test  = load_math500_split("test")
 
-    # ── Step 1: Compute steering vectors on CALIB ────────────────────────────
-    print("\n[STEP 1] Computing steering vectors on CALIB split...", flush=True)
-    mean_diff = get_mean_diff_vectors(calib_problems)
-    # SVD with sign oriented to align with mean-diff (resolves sign ambiguity)
-    svd_vecs  = get_svd_vectors(orient_with_mean_diff=mean_diff)
-    print("[STEP 1] Done.", flush=True)
+    # Step 1: vectors
+    print("\n[STEP 1] Steering vectors on CALIB...", flush=True)
+    mean_diff   = get_mean_diff_vectors(calib)
+    svd_vecs    = get_svd_vectors(calib, orientation="source_gate")
 
-    # ── Step 2: Load target model ────────────────────────────────────────────
+    # Step 2: target model
     print("\n[STEP 2] Loading target model...", flush=True)
     model = AutoModelForCausalLM.from_pretrained(
         MODELS["instruct"], torch_dtype=torch.float16, device_map="auto")
-    tokenizer = AutoTokenizer.from_pretrained(MODELS["instruct"])
-    tokenizer.pad_token = tokenizer.eos_token
-    print("[STEP 2] Done.", flush=True)
+    tok = AutoTokenizer.from_pretrained(MODELS["instruct"])
+    tok.pad_token = tok.eos_token
 
-    # ── Step 3: Baseline on VAL and TEST ─────────────────────────────────────
+    # Step 3: baselines
     print("\n[STEP 3] Baselines...", flush=True)
-    val_baseline  = evaluate(model, tokenizer, val_problems,  "baseline_val")
-    test_baseline = evaluate(model, tokenizer, test_problems, "baseline_test")
-    bl_val  = val_baseline["accuracy"]
-    bl_test = test_baseline["accuracy"]
+    val_bl  = evaluate(model, tok, val,  "baseline_val")
+    test_bl = evaluate(model, tok, test, "baseline_test")
+    bl_val, bl_test = val_bl["accuracy"], test_bl["accuracy"]
     print(f"  VAL  baseline: {bl_val:.1f}%")
     print(f"  TEST baseline: {bl_test:.1f}%", flush=True)
 
-    results = {"baseline_val": val_baseline, "baseline_test": test_baseline}
+    results = {"baseline_val": val_bl, "baseline_test": test_bl}
+
+    # Step 4: VAL alpha sweeps
+    print("\n[STEP 4] VAL alpha sweeps...", flush=True)
+    svd_val = {}
+    for alpha in [0.3, 0.5, 1.0, 1.5, 2.0, 3.0]:
+        r = apply_svd_steering(model, tok, val, svd_vecs, alpha, f"val_svd_a{alpha}")
+        svd_val[alpha] = r["accuracy"]; results[f"val_svd_a{alpha}"] = r
+        print(f"  SVD full α={alpha}: {r['accuracy']:.1f}%", flush=True)
+    best_svd_a = max(svd_val, key=svd_val.get)
+
+    topk_val = {}
+    for k in [5, 10, 15, 20]:
+        r = apply_svd_steering(model, tok, val, svd_vecs, best_svd_a,
+                               f"val_svd_top{k}", top_k=k)
+        topk_val[k] = r["accuracy"]; results[f"val_svd_top{k}"] = r
+        print(f"  SVD top-{k} α={best_svd_a}: {r['accuracy']:.1f}%", flush=True)
+    best_k = max(topk_val, key=topk_val.get)
+
+    md_val = {}
+    for alpha in [0.01, 0.02, 0.05, 0.07, 0.1]:
+        r = apply_meandiff_steering(model, tok, val, mean_diff, alpha, f"val_md_a{alpha}")
+        md_val[alpha] = r["accuracy"]; results[f"val_md_a{alpha}"] = r
+        print(f"  MeanDiff α={alpha}: {r['accuracy']:.1f}%", flush=True)
+    best_md_a = max(md_val, key=md_val.get)
+
+    print(f"\n  → Best: SVD α={best_svd_a} K={best_k}  MeanDiff α={best_md_a}", flush=True)
+
+    # Step 5: TEST with selected configs
+    print("\n[STEP 5] TEST evaluation (n=400)...", flush=True)
     summary = {}
 
-    # ── Step 4: VAL alpha sweeps → select best config per method ────────────
-    print("\n[STEP 4] Hyperparameter selection on VAL...", flush=True)
+    r = apply_svd_steering(model, tok, test, svd_vecs, best_svd_a,
+                           f"test_svd_full_a{best_svd_a}")
+    results[r["label"]] = r; summary["SVD_full"] = r
+    print_result_row("SVD full", r, [it["correct"] for it in test_bl["items"]])
 
-    # SVD full
-    svd_val_scores = {}
-    for alpha in [0.3, 0.5, 1.0, 1.5, 2.0, 3.0]:
-        lbl = f"val_svd_full_a{alpha}"
-        r = apply_residual_steering(model, tokenizer, val_problems,
-                                    svd_vecs, alpha, lbl)
-        svd_val_scores[alpha] = r["accuracy"]
-        results[lbl] = r
-        print(f"  SVD full α={alpha}: {r['accuracy']:.1f}%", flush=True)
-    best_svd_alpha = max(svd_val_scores, key=svd_val_scores.get)
-    print(f"  → Best SVD full α = {best_svd_alpha}", flush=True)
+    r = apply_svd_steering(model, tok, test, svd_vecs, best_svd_a,
+                           f"test_svd_top{best_k}_a{best_svd_a}", top_k=best_k)
+    results[r["label"]] = r; summary[f"SVD_top{best_k}"] = r
+    print_result_row(f"SVD top-{best_k}", r, [it["correct"] for it in test_bl["items"]])
 
-    # SVD top-K (fixed alpha = best_svd_alpha)
-    svd_topk_val = {}
-    for k in [5, 10, 15, 20]:
-        lbl = f"val_svd_top{k}_a{best_svd_alpha}"
-        r = apply_residual_steering(model, tokenizer, val_problems,
-                                    svd_vecs, best_svd_alpha, lbl, top_k=k)
-        svd_topk_val[k] = r["accuracy"]
-        results[lbl] = r
-        print(f"  SVD top-{k}: {r['accuracy']:.1f}%", flush=True)
-    best_k = max(svd_topk_val, key=svd_topk_val.get)
-    print(f"  → Best K = {best_k}", flush=True)
+    r = apply_meandiff_steering(model, tok, test, mean_diff, best_md_a,
+                                f"test_meandiff_a{best_md_a}")
+    results[r["label"]] = r; summary["MeanDiff"] = r
+    print_result_row("MeanDiff", r, [it["correct"] for it in test_bl["items"]])
 
-    # Mean-diff
-    md_val_scores = {}
-    for alpha in [0.01, 0.02, 0.05, 0.07, 0.1]:
-        lbl = f"val_meandiff_a{alpha}"
-        r = apply_meandiff_steering(model, tokenizer, val_problems,
-                                    mean_diff, alpha, lbl)
-        md_val_scores[alpha] = r["accuracy"]
-        results[lbl] = r
-        print(f"  Mean-diff α={alpha}: {r['accuracy']:.1f}%", flush=True)
-    best_md_alpha = max(md_val_scores, key=md_val_scores.get)
-    print(f"  → Best mean-diff α = {best_md_alpha}", flush=True)
+    # Step 6: Controls — 20 seeds each
+    print(f"\n[STEP 6] {N_NULL_SEEDS}-seed null controls on TEST...", flush=True)
+    base_items = [it["correct"] for it in test_bl["items"]]
 
-    # ── Step 5: Final TEST evaluation with selected configs ───────────────────
-    print("\n[STEP 5] Final evaluation on TEST (n=400)...", flush=True)
+    # 6a: Random unit vectors (matched per-layer norms)
+    rand_accs = []
+    for seed in range(N_NULL_SEEDS):
+        r = apply_svd_steering(model, tok, test, svd_vecs, best_svd_a,
+                               f"test_rand_s{seed}", random_seed=seed, top_k=best_k)
+        rand_accs.append(r["accuracy"])
+        results[r["label"]] = r
+    print(f"  Random dirs: mean={np.mean(rand_accs):.1f}%  "
+          f"std={np.std(rand_accs):.1f}%  "
+          f"range=[{min(rand_accs):.1f}, {max(rand_accs):.1f}]", flush=True)
 
-    # SVD full (best alpha)
-    lbl = f"test_svd_full_a{best_svd_alpha}"
-    r = apply_residual_steering(model, tokenizer, test_problems,
-                                svd_vecs, best_svd_alpha, lbl)
-    results[lbl] = r
-    summary["SVD_full"] = r
-    print_result_row("SVD full (best α)", r, bl_test)
+    # 6b: Random sign patterns (independent per-layer sign flips)
+    sign_accs = []
+    for seed in range(N_NULL_SEEDS):
+        rng = random.Random(seed)
+        flipped = {li: {**d, "u": d["u"] * (1 if rng.random() > 0.5 else -1)}
+                   for li, d in svd_vecs.items()}
+        r = apply_svd_steering(model, tok, test, flipped, best_svd_a,
+                               f"test_randsign_s{seed}", top_k=best_k)
+        sign_accs.append(r["accuracy"])
+        results[r["label"]] = r
+    print(f"  Random signs: mean={np.mean(sign_accs):.1f}%  "
+          f"std={np.std(sign_accs):.1f}%", flush=True)
 
-    # SVD top-K (best k + best alpha)
-    lbl = f"test_svd_top{best_k}_a{best_svd_alpha}"
-    r = apply_residual_steering(model, tokenizer, test_problems,
-                                svd_vecs, best_svd_alpha, lbl, top_k=best_k)
-    results[lbl] = r
-    summary["SVD_topK"] = r
-    print_result_row(f"SVD top-{best_k} (best α)", r, bl_test)
+    # 6c: Wrong-layer (permuted vectors among top-K positions)
+    wrong_accs = []
+    for seed in range(N_NULL_SEEDS):
+        ranked = sorted(svd_vecs, key=lambda i: svd_vecs[i]["sigma"], reverse=True)
+        active = ranked[:best_k]
+        rng = random.Random(seed)
+        shuffled = active.copy(); rng.shuffle(shuffled)
+        permuted = dict(svd_vecs)
+        for orig, shuf in zip(active, shuffled):
+            # Keep original layer's sigma weight, use shuffled layer's u vector
+            permuted[orig] = {"u": svd_vecs[shuf]["u"],
+                              "sigma": svd_vecs[orig]["sigma"]}
+        r = apply_svd_steering(model, tok, test, permuted, best_svd_a,
+                               f"test_wronglayer_s{seed}", top_k=best_k)
+        wrong_accs.append(r["accuracy"])
+        results[r["label"]] = r
+    print(f"  Wrong-layer:  mean={np.mean(wrong_accs):.1f}%  "
+          f"std={np.std(wrong_accs):.1f}%", flush=True)
 
-    # Mean-diff (best alpha)
-    lbl = f"test_meandiff_a{best_md_alpha}"
-    r = apply_meandiff_steering(model, tokenizer, test_problems,
-                                mean_diff, best_md_alpha, lbl)
-    results[lbl] = r
-    summary["MeanDiff"] = r
-    print_result_row("Mean-diff (best α)", r, bl_test)
+    # 6d: Random layer rankings (uniformly random K layers, not top-K)
+    randlayer_accs = []
+    all_layers = list(svd_vecs.keys())
+    for seed in range(N_NULL_SEEDS):
+        rng = random.Random(seed + 100)
+        rand_k = rng.sample(all_layers, min(best_k, len(all_layers)))
+        rand_subset = {li: svd_vecs[li] for li in rand_k}
+        r = apply_svd_steering(model, tok, test, rand_subset, best_svd_a,
+                               f"test_randlayer_s{seed}")
+        randlayer_accs.append(r["accuracy"])
+        results[r["label"]] = r
+    print(f"  Random K layers: mean={np.mean(randlayer_accs):.1f}%  "
+          f"std={np.std(randlayer_accs):.1f}%", flush=True)
 
-    # ── Step 6: Controls ──────────────────────────────────────────────────────
-    print("\n[STEP 6] Control experiments on TEST...", flush=True)
-
-    # Random steering with matched per-layer norms
-    lbl = f"test_svd_random_a{best_svd_alpha}"
-    r = apply_residual_steering(model, tokenizer, test_problems,
-                                svd_vecs, best_svd_alpha, lbl, randomize=True)
-    results[lbl] = r
-    summary["Random_control"] = r
-    print_result_row("Random steering (matched norm)", r, bl_test)
-
-    # Sign-flip control
-    lbl = f"test_svd_signflip_a{best_svd_alpha}"
-    r = apply_residual_steering(model, tokenizer, test_problems,
-                                svd_vecs, best_svd_alpha, lbl, sign_flip=True)
-    results[lbl] = r
-    summary["SignFlip_control"] = r
-    print_result_row("Sign-flipped SVD", r, bl_test)
-
-    # Top-K with scrambled layer assignment (wrong-layer control)
-    ranked_layers = sorted(svd_vecs, key=lambda i: svd_vecs[i]["sigma"], reverse=True)
-    shuffled_vecs = dict(svd_vecs)
-    top_k_layers = ranked_layers[:best_k]
-    shuffled_layers = top_k_layers.copy()
-    import random as _rand
-    _rand.seed(42)
-    _rand.shuffle(shuffled_layers)
-    shuffled_map = {orig: shuffled_vecs[shuf]
-                    for orig, shuf in zip(top_k_layers, shuffled_layers)}
-    shuffled_vecs_reindexed = dict(svd_vecs)
-    shuffled_vecs_reindexed.update(shuffled_map)
-    lbl = f"test_svd_wronglayer_a{best_svd_alpha}"
-    r = apply_residual_steering(model, tokenizer, test_problems,
-                                shuffled_vecs_reindexed, best_svd_alpha, lbl,
-                                top_k=best_k)
-    results[lbl] = r
-    summary["WrongLayer_control"] = r
-    print_result_row("SVD wrong-layer (shuffled)", r, bl_test)
-
-    # ── Step 7: Paired bootstrap CIs ─────────────────────────────────────────
-    print("\n[STEP 7] Paired bootstrap CIs vs baseline...", flush=True)
-    base_items = [it["correct"] for it in test_baseline["items"]]
-
+    # Step 7: McNemar + bootstrap for main methods
+    print("\n[STEP 7] Paired statistics...", flush=True)
     stats = {}
     for key, res in summary.items():
-        method_items = [it["correct"] for it in res["items"]]
-        ci = bootstrap_ci(base_items, method_items)
-        stats[key] = ci
-        print(f"  {key:<30} Δ={ci['mean_diff_pp']:+.2f}pp "
-              f"95%CI [{ci['ci_low_pp']:.1f}, {ci['ci_high_pp']:.1f}]  "
-              f"p={ci['p_value']:.3f}", flush=True)
+        mi = [it["correct"] for it in res["items"]]
+        mn = mcnemar_test(base_items, mi)
+        bc = bootstrap_ci(base_items, mi)
+        stats[key] = {**mn, **bc}
+        lo, hi = wilson_ci(res["correct"], res["total"])
+        print(f"  {key:<20} acc={res['accuracy']:.1f}%  [{lo},{hi}]  "
+              f"Δ={bc['mean_diff_pp']:+.1f}pp  McNemar p={mn['p_value']:.3f}", flush=True)
 
-    # ── Save everything ───────────────────────────────────────────────────────
-    print("\n[SAVE] Writing results...", flush=True)
+    # Save
+    print("\n[SAVE]", flush=True)
+    slim = {k: {kk: vv for kk, vv in v.items() if kk != "items"}
+            for k, v in results.items()}
     with open(OUTPUT_DIR / "paper_eval_results.json", "w") as f:
-        # strip item-level for top-level summary
-        slim = {k: {kk: vv for kk, vv in v.items() if kk != "items"}
-                for k, v in results.items()}
         json.dump(slim, f, indent=2)
 
+    save_stats = {
+        "baseline_test_acc": bl_test, "baseline_val_acc": bl_val,
+        "best_svd_alpha": best_svd_a, "best_k": best_k,
+        "best_md_alpha": best_md_a,
+        "summary": {k: {kk: vv for kk, vv in v.items() if kk != "items"}
+                    for k, v in summary.items()},
+        "bootstrap_stats": stats,
+        "null_distributions": {
+            "random_dirs":    {"mean": np.mean(rand_accs),   "std": np.std(rand_accs),   "values": rand_accs},
+            "random_signs":   {"mean": np.mean(sign_accs),   "std": np.std(sign_accs),   "values": sign_accs},
+            "wrong_layer":    {"mean": np.mean(wrong_accs),  "std": np.std(wrong_accs),  "values": wrong_accs},
+            "random_k_layers":{"mean": np.mean(randlayer_accs), "std": np.std(randlayer_accs), "values": randlayer_accs},
+        },
+    }
     with open(OUTPUT_DIR / "paper_eval_stats.json", "w") as f:
-        json.dump({
-            "baseline_val_acc": bl_val,
-            "baseline_test_acc": bl_test,
-            "best_svd_alpha": best_svd_alpha,
-            "best_k": best_k,
-            "best_md_alpha": best_md_alpha,
-            "summary": {k: {kk: vv for kk, vv in v.items() if kk != "items"}
-                        for k, v in summary.items()},
-            "bootstrap_stats": stats,
-        }, f, indent=2)
+        json.dump(save_stats, f, indent=2)
 
-    # ── Print final table ─────────────────────────────────────────────────────
-    print("\n" + "=" * 72)
-    print("FINAL RESULTS TABLE  (TEST set, n=400, problems 0–399)")
-    print("=" * 72)
-    print(f"{'Method':<40} {'Acc':>6}  {'95% CI':>18}  {'Δ (pp)':>8}  {'p':>7}")
-    print("-" * 72)
-    bl_lo, bl_hi = exact_ci_wilson(test_baseline["correct"], test_baseline["total"])
-    print(f"{'Baseline (Qwen2.5-1.5B-Instruct)':<40} "
-          f"{bl_test:>5.1f}%  [{bl_lo:.1f}, {bl_hi:.1f}]  {'—':>8}")
+    # Final table
+    print("\n" + "="*72)
+    print("FINAL  (TEST n=400, problems 0-399)")
+    print("="*72)
+    bl_lo, bl_hi = wilson_ci(test_bl["correct"], test_bl["total"])
+    print(f"  {'Baseline':<50} {bl_test:.1f}%  [{bl_lo},{bl_hi}]")
     for key, res in summary.items():
-        ci = stats[key]
-        lo, hi = exact_ci_wilson(res["correct"], res["total"])
-        print(f"{key:<40} {res['accuracy']:>5.1f}%  [{lo:.1f}, {hi:.1f}]  "
-              f"{ci['mean_diff_pp']:>+7.2f}pp  {ci['p_value']:>6.3f}")
-    print("=" * 72)
+        print_result_row(key, res, base_items)
+    print(f"\n  Null distributions (mean ± std):")
+    for name, vals in save_stats["null_distributions"].items():
+        print(f"    {name:<20} {vals['mean']:.1f}% ± {vals['std']:.1f}%")
     print("DONE.", flush=True)
 
 

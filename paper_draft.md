@@ -6,7 +6,7 @@
 
 ## Abstract
 
-Reinforcement Learning with Verifiable Rewards (RLVR) has emerged as a powerful paradigm for improving mathematical reasoning in large language models. Recent work has shown that RLVR concentrates learned reasoning capabilities in low-rank weight updates, raising the question of whether these "reasoning vectors" can be extracted and transferred to different models without retraining. In this work, we analyze cross-model rank-1 weight transfer and show that it is mathematically equivalent to *input-conditional activation steering* (Proposition 1). We demonstrate empirically that this conditioning mechanism degrades across models due to a 61% magnitude reduction and 10% polarity inversion in the gating signal, suggesting it may contribute to why weight-space transfer achieves only +2 percentage points while activation-space steering achieves +14 percentage points. Guided by this analysis, we propose SVD-derived activation steering, which extracts principled steering vectors directly from RLVR weight deltas without requiring source-model inference at deployment. Experiments on MATH500 with Qwen2.5-1.5B models show that sparse top-K SVD steering achieves +10 percentage-point improvement, approaching empirical mean-difference steering (+14 pp) while requiring no calibration data or source-model inference, and providing per-layer importance weights via singular values.
+Reinforcement Learning with Verifiable Rewards (RLVR) has emerged as a powerful paradigm for improving mathematical reasoning in large language models. Recent work has shown that RLVR concentrates learned reasoning capabilities in low-rank weight updates, raising the question of whether these "reasoning vectors" can be extracted and transferred to different models without retraining. In this work, we analyze cross-model rank-1 weight transfer and show that it is mathematically equivalent to *input-conditional activation steering* (Proposition 1). We demonstrate empirically that this conditioning mechanism degrades across models due to a 61% magnitude reduction and 10% polarity inversion in the gating signal, suggesting it may contribute to why weight-space transfer achieves only +2 percentage points while activation-space steering achieves +14 percentage points. Guided by this analysis, we propose SVD-derived activation steering, which extracts principled steering vectors directly from RLVR weight deltas without requiring source-model inference at deployment. Experiments on MATH500 with Qwen2.5-1.5B models show that sparse top-K SVD steering achieves +10 percentage-point improvement, approaching empirical mean-difference steering (+14 pp) while requiring no source-model inference at deployment. Both methods require a calibration pass for sign orientation; SVD avoids the more expensive two-model forward pass that mean-difference needs for vector extraction.
 
 ---
 
@@ -135,7 +135,7 @@ This condition is unlikely to hold when source and target models have different 
 ### 5.2 Spectral Concentration
 
 Across 198 parameter matrices (in 28 transformer blocks):
-- Mean rank-1 fraction: $\bar{\rho} = 0.258$ (compare to $\approx 0.001$ for a random 1536×1536 matrix — a 400× concentration)
+- Mean rank-1 fraction: $\bar{\rho} = 0.258$ (compare to shape-matched empirical null distributions: mean $\approx 0.003$–$0.007$ depending on matrix shape — a concentration of 40–80× depending on the layer; see `outputs/spectral_null.json` for per-shape results)
 - Maximum: $\rho_{\max} = 0.871$ (attention V-projection in layer 27)
 - Matrices with $\rho > 0.3$: 57/198 (29%)
 
@@ -186,7 +186,9 @@ $$h_l' = h_l + \alpha \cdot w_l \cdot s_l$$
 
 where $w_l = \sigma_l / \sigma_{\max}$ is the normalized importance weight, and $\sigma_l = \sum_m \sigma_{l,m}$.
 
-**Sign ambiguity note.** Steps 1–2 require only the weight delta. Step 3 requires calibration activations to orient the sign. The claim that SVD steering avoids source-model inference applies to *deployment* (no forward passes needed at inference time), but sign orientation does require a one-time calibration pass.
+**Sign ambiguity note.** Each $u_{l,m}$ must be individually oriented *before* summation, since $(u, v)$ and $(-u, -v)$ represent identical weight deltas — discarding $v$ leaves $u$'s sign undetermined. We use:
+$$\tilde{u}_{l,m} = \operatorname{sign}\!\left(\mathbb{E}[v_{l,m}^T x]\right) \cdot u_{l,m}$$
+where $x$ is the input to projection $m$ on source-model calibration examples ("source-gate orientation"). Steps 1–2 require only the weight delta; step 3 requires one calibration pass on the source base model only (not the RLVR model). We compare this to a weight-only rule (no calibration) and to mean-difference orientation in ablations (`comprehensive_suite.py`).
 
 ### 6.2 Variants
 
@@ -326,7 +328,7 @@ The most defensible current contribution is an exploratory study showing that ra
 
 [2] Cui, G., et al. Process reinforcement through implicit rewards. *arXiv preprint arXiv:2502.01456*, 2025.
 
-[3] Zhan, R., et al. Reinforcement learning for reasoning in large language models with one training example. *NeurIPS*, 2025. arXiv:2504.20571.
+[3] Wang, Y., et al. Reinforcement learning for reasoning in large language models with one training example. *NeurIPS*, 2025. arXiv:2504.20571.
 
 [4] Shao, Z., et al. DeepSeekMath: Pushing the limits of mathematical reasoning in open language models. *arXiv preprint arXiv:2402.03300*, 2024.
 
