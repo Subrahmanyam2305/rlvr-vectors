@@ -286,81 +286,63 @@ def main():
 
     all_results = {}
 
-    # ── Part A: Multi-source × multi-target matrix ─────────────────────────
-    print("\n[PART A] Multi-source × multi-target matrix", flush=True)
-    print("  Sources: 1shot-pi1 (primary) + 1200-step (duration ablation, same recipe)", flush=True)
-    print("  Targets: Qwen2.5-1.5B-Instruct (cross-model) + Math-1.5B (self-transfer)", flush=True)
-    source_pairs = [
-        ("rlvr_oneshot",  "math_base", "1shot-pi1"),
-        ("rlvr_1200step", "math_base", "1200step-ablation"),
-    ]
-    target_ids = [
-        ("instruct",      "Qwen2.5-1.5B-Instruct"),
-        ("math_base_tgt", "Qwen2.5-Math-1.5B (self-transfer)"),
-    ]
+    # ── Part A: Primary cross-model cell only ──────────────────────────────
+    # (self-transfer and duration-ablation cells removed — already have
+    #  same-model recovery from paper_eval_suite; duration ablation is not
+    #  essential for the core paper claim)
+    print("\n[PART A] Primary cross-model cell: 1shot-pi1 → Instruct", flush=True)
+    src_id  = MODELS["rlvr_oneshot"]
+    base_id = MODELS["math_base"]
+    tgt_id  = MODELS["instruct"]
+    pair_label = "1shot-pi1_to_instruct"
 
-    for src_key, base_key, src_label in source_pairs:
-        src_id  = MODELS[src_key]
-        base_id = MODELS[base_key]
-        svd_v = get_svd_vectors_for_pair(src_id, base_id, calib)
-        md_v  = get_meandiff_for_pair(src_id, base_id, calib)
+    svd_v = get_svd_vectors_for_pair(src_id, base_id, calib)
+    md_v  = get_meandiff_for_pair(src_id, base_id, calib)
 
-        for tgt_key, tgt_label in target_ids:
-            tgt_id = MODELS[tgt_key]
-            pair_label = f"{src_label}_to_{tgt_key}"
-            print(f"\n  [{pair_label}]", flush=True)
+    model = AutoModelForCausalLM.from_pretrained(
+        tgt_id, torch_dtype=torch.float16, device_map="auto")
+    tok = AutoTokenizer.from_pretrained(tgt_id)
+    tok.pad_token = tok.eos_token
 
-            model = AutoModelForCausalLM.from_pretrained(
-                tgt_id, torch_dtype=torch.float16, device_map="auto")
-            tok = AutoTokenizer.from_pretrained(tgt_id)
-            tok.pad_token = tok.eos_token
+    bl = evaluate(model, tok, test, f"{pair_label}_baseline")
+    all_results[f"{pair_label}_baseline"] = bl
+    print(f"  Baseline: {bl['accuracy']:.1f}%")
 
-            bl = evaluate(model, tok, test, f"{pair_label}_baseline")
-            all_results[f"{pair_label}_baseline"] = bl
-            print(f"    Baseline: {bl['accuracy']:.1f}%")
+    # VAL sweep → pick best alpha
+    best_a, best_a_acc = 0.5, 0.0
+    for alpha in [0.3, 0.5, 1.0, 1.5, 2.0]:
+        r = apply_svd_steering(model, tok, val, svd_v, alpha,
+                               f"{pair_label}_val_svd_a{alpha}")
+        if r["accuracy"] > best_a_acc:
+            best_a, best_a_acc = alpha, r["accuracy"]
+    r = apply_svd_steering(model, tok, test, svd_v, best_a,
+                           f"{pair_label}_svd_a{best_a}")
+    all_results[r["label"]] = r
+    print(f"  SVD α={best_a} (VAL-selected): {r['accuracy']:.1f}%")
 
-            # Val sweep for this pair
-            best_a = 0.5
-            for alpha in [0.3, 0.5, 1.0, 2.0]:
-                r = apply_svd_steering(model, tok, val, svd_v, alpha,
-                                       f"{pair_label}_val_svd_a{alpha}")
-                if r["accuracy"] > apply_svd_steering(
-                        model, tok, val, svd_v, best_a,
-                        f"{pair_label}_val_svd_best")["accuracy"]:
-                    best_a = alpha
+    best_md_a, best_md_acc = 0.05, 0.0
+    for alpha in [0.01, 0.02, 0.05, 0.1]:
+        r_v = apply_meandiff_steering(model, tok, val, md_v, alpha,
+                                      f"{pair_label}_val_md_a{alpha}")
+        if r_v["accuracy"] > best_md_acc:
+            best_md_a, best_md_acc = alpha, r_v["accuracy"]
+    r = apply_meandiff_steering(model, tok, test, md_v, best_md_a,
+                                f"{pair_label}_md_a{best_md_a}")
+    all_results[r["label"]] = r
+    print(f"  MeanDiff α={best_md_a} (VAL-selected): {r['accuracy']:.1f}%")
 
-            r = apply_svd_steering(model, tok, test, svd_v, best_a,
-                                   f"{pair_label}_svd_a{best_a}")
-            all_results[r["label"]] = r
-            print(f"    SVD α={best_a}: {r['accuracy']:.1f}%")
-
-            best_md_a = 0.05
-            for alpha in [0.02, 0.05, 0.1]:
-                r_v = apply_meandiff_steering(model, tok, val, md_v, alpha,
-                                              f"{pair_label}_val_md_a{alpha}")
-                if r_v["accuracy"] > apply_meandiff_steering(
-                        model, tok, val, md_v, best_md_a,
-                        f"{pair_label}_val_md_best")["accuracy"]:
-                    best_md_a = alpha
-
-            r = apply_meandiff_steering(model, tok, test, md_v, best_md_a,
-                                        f"{pair_label}_md_a{best_md_a}")
-            all_results[r["label"]] = r
-            print(f"    MeanDiff α={best_md_a}: {r['accuracy']:.1f}%")
-
-            del model; gc.collect(); torch.cuda.empty_cache()
+    del model; gc.collect(); torch.cuda.empty_cache()
 
     # ── Part B: Sign-orientation ablation (diagnostic at fixed alpha=0.5) ──
     print("\n[PART B] Sign-orientation ablation (fixed alpha=0.5, diagnostic)", flush=True)
-    print("  NOTE: alpha is not retuned per orientation — this is a fixed-strength", flush=True)
-    print("  diagnostic showing sensitivity to orientation choice.", flush=True)
+    print("  3 orientations × 5 calibration sizes — shows sensitivity to orientation.", flush=True)
     orientation_labels = ["none", "weight_only", "source_gate"]
     calib_sizes = [1, 5, 10, 25, 50]
 
-    model = AutoModelForCausalLM.from_pretrained(
+    model_b = AutoModelForCausalLM.from_pretrained(
         MODELS["instruct"], torch_dtype=torch.float16, device_map="auto")
-    tok = AutoTokenizer.from_pretrained(MODELS["instruct"])
-    tok.pad_token = tok.eos_token
+    tok_b = AutoTokenizer.from_pretrained(MODELS["instruct"])
+    tok_b.pad_token = tok_b.eos_token
 
     for orient in orientation_labels:
         for n_calib in calib_sizes:
@@ -368,65 +350,40 @@ def main():
             vecs = get_svd_vectors_for_pair(
                 MODELS["rlvr_oneshot"], MODELS["math_base"],
                 calib_sub, orientation=orient)
-            r = apply_svd_steering(model, tok, val, vecs, 0.5,
+            r = apply_svd_steering(model_b, tok_b, val, vecs, 0.5,
                                    f"orient_{orient}_n{n_calib}")
             all_results[r["label"]] = r
             print(f"  orient={orient:<12} n_calib={n_calib:<3}: {r['accuracy']:.1f}%",
                   flush=True)
 
-    del model; gc.collect(); torch.cuda.empty_cache()
+    del model_b; gc.collect(); torch.cuda.empty_cache()
 
     # ── Part C: Matched-scope intervention ablation ──────────────────────────
     print("\n[PART C] Matched-scope ablation (primary source->instruct pair)...", flush=True)
-    svd_primary  = get_svd_vectors_for_pair(MODELS["rlvr_oneshot"], MODELS["math_base"],
-                                            calib, "source_gate")
-    md_primary   = get_meandiff_for_pair(MODELS["rlvr_oneshot"], MODELS["math_base"], calib)
+    svd_primary = get_svd_vectors_for_pair(MODELS["rlvr_oneshot"], MODELS["math_base"],
+                                           calib, "source_gate")
+    md_primary  = get_meandiff_for_pair(MODELS["rlvr_oneshot"], MODELS["math_base"], calib)
     model_ms = AutoModelForCausalLM.from_pretrained(
         MODELS["instruct"], torch_dtype=torch.float16, device_map="auto")
     tok_ms = AutoTokenizer.from_pretrained(MODELS["instruct"])
     tok_ms.pad_token = tok_ms.eos_token
     scope_results = matched_scope_ablation(
         model_ms, tok_ms, test, svd_primary, None, md_primary,
-        best_alpha=0.5, best_md_alpha=0.05, label_prefix="scope")
+        best_alpha=best_a, best_md_alpha=best_md_a, label_prefix="scope")
     all_results.update(scope_results)
     del model_ms; gc.collect(); torch.cuda.empty_cache()
 
     # ── Part D: Numerical gate equivalence ──────────────────────────────────
     print("\n[PART D] Numerical gate equivalence verification...", flush=True)
-    model = AutoModelForCausalLM.from_pretrained(
+    model_d = AutoModelForCausalLM.from_pretrained(
         MODELS["math_base"], torch_dtype=torch.float16, device_map="auto")
-    tok_b = AutoTokenizer.from_pretrained(MODELS["math_base"])
-    tok_b.pad_token = tok_b.eos_token
-    equiv = verify_rank1_equals_conditional_steering(model, tok_b, calib[:5], None)
+    tok_d = AutoTokenizer.from_pretrained(MODELS["math_base"])
+    tok_d.pad_token = tok_d.eos_token
+    equiv = verify_rank1_equals_conditional_steering(model_d, tok_d, calib[:5], None)
     all_results["proposition1_verification"] = equiv
     print(f"  Mean logit diff: {equiv['mean_logit_diff']:.2e}")
     print(f"  Max  logit diff: {equiv['max_logit_diff']:.2e}")
-    del model; gc.collect(); torch.cuda.empty_cache()
-
-    # ── Part E: GSM8K generalization ──────────────────────────────────────
-    if gsm8k:
-        print(f"\n[PART E] GSM8K generalization (n={len(gsm8k)})...", flush=True)
-        svd_v  = get_svd_vectors_for_pair(MODELS["rlvr_oneshot"], MODELS["math_base"],
-                                          calib, "source_gate")
-        md_v   = get_meandiff_for_pair(MODELS["rlvr_oneshot"], MODELS["math_base"], calib)
-        model  = AutoModelForCausalLM.from_pretrained(
-            MODELS["instruct"], torch_dtype=torch.float16, device_map="auto")
-        tok = AutoTokenizer.from_pretrained(MODELS["instruct"])
-        tok.pad_token = tok.eos_token
-
-        r = evaluate(model, tok, gsm8k, "gsm8k_baseline")
-        all_results["gsm8k_baseline"] = r
-        print(f"  GSM8K baseline: {r['accuracy']:.1f}%")
-
-        r = apply_svd_steering(model, tok, gsm8k, svd_v, 0.5, "gsm8k_svd_a0.5")
-        all_results[r["label"]] = r
-        print(f"  GSM8K SVD α=0.5: {r['accuracy']:.1f}%")
-
-        r = apply_meandiff_steering(model, tok, gsm8k, md_v, 0.05, "gsm8k_md_a0.05")
-        all_results[r["label"]] = r
-        print(f"  GSM8K MeanDiff α=0.05: {r['accuracy']:.1f}%")
-
-        del model; gc.collect(); torch.cuda.empty_cache()
+    del model_d; gc.collect(); torch.cuda.empty_cache()
 
     # ── Save ───────────────────────────────────────────────────────────────
     slim = {k: {kk: vv for kk, vv in v.items() if kk != "items"}

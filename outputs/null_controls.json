@@ -1,0 +1,39 @@
+{
+  "null_n": 50,
+  "n_seeds": 2,
+  "null_baseline": 36.0,
+  "null_stats": {
+    "rand_dir": {
+      "accs": [
+        36.0,
+        40.0
+      ],
+      "mean": 38.0,
+      "std": 2.0
+    },
+    "rand_sign": {
+      "accs": [
+        38.0,
+        34.0
+      ],
+      "mean": 36.0,
+      "std": 2.0
+    },
+    "wrong_layer": {
+      "accs": [
+        38.0,
+        38.0
+      ],
+      "mean": 38.0,
+      "std": 0.0
+    },
+    "rand_layer": {
+      "accs": [
+        42.0,
+        38.0
+      ],
+      "mean": 40.0,
+      "std": 2.0
+    }
+  }
+}

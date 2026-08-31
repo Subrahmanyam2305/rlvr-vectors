@@ -158,43 +158,58 @@ def make_prompt(tokenizer, question: str) -> str:
 # ──────────────────────────────────────────────────────────────────────────────
 
 def evaluate(model, tokenizer, problems, label: str = "",
-             max_new_tokens: int = 1024, save_items: bool = True) -> dict:
-    """Evaluate model on problems. Returns dict with per-item results."""
+             max_new_tokens: int = 512, save_items: bool = True,
+             batch_size: int = 4) -> dict:
+    """Evaluate model on problems with batched generation for GPU efficiency."""
     model.eval()
+    # Ensure left-padding for batched generation
+    orig_padding_side = tokenizer.padding_side
+    tokenizer.padding_side = "left"
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
     correct = 0
     items = []
 
-    for i, prob in enumerate(problems):
-        text = make_prompt(tokenizer, prob["problem"])
+    for batch_start in range(0, len(problems), batch_size):
+        batch = problems[batch_start:batch_start + batch_size]
+        texts = [make_prompt(tokenizer, p["problem"]) for p in batch]
         inputs = tokenizer(
-            text, return_tensors="pt", truncation=True, max_length=2048
+            texts, return_tensors="pt", padding=True,
+            truncation=True, max_length=2048
         ).to(model.device)
         with torch.no_grad():
             out = model.generate(
                 **inputs, max_new_tokens=max_new_tokens,
                 do_sample=False, pad_token_id=tokenizer.eos_token_id)
-        response = tokenizer.decode(
-            out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
-        pred = extract_boxed(response)
-        gold = prob["answer"]
-        is_correct = answers_match(pred, gold)
-        if is_correct:
-            correct += 1
+        # Decode each item in batch
+        input_len = inputs["input_ids"].shape[1]
+        for j, prob in enumerate(batch):
+            gen_tokens = out[j][input_len:]
+            response = tokenizer.decode(gen_tokens, skip_special_tokens=True)
+            pred = extract_boxed(response)
+            gold = prob["answer"]
+            is_correct = answers_match(pred, gold)
+            if is_correct:
+                correct += 1
+            i = batch_start + j
+            items.append({
+                "idx": i,
+                "gold": gold,
+                "pred": pred,
+                "correct": is_correct,
+                "response_len": len(response.split()),
+                "has_boxed": bool(pred),
+            })
 
-        items.append({
-            "idx": i,
-            "gold": gold,
-            "pred": pred,
-            "correct": is_correct,
-            "response_len": len(response.split()),
-            "has_boxed": bool(pred),
-        })
-
-        if (i + 1) % 10 == 0:
+        done = min(batch_start + batch_size, len(problems))
+        if done % 40 == 0 or done == len(problems):
             boxed_rate = sum(1 for it in items if it["has_boxed"]) / len(items)
-            print(f"  [{label}] [{i+1}/{len(problems)}] "
-                  f"Acc: {correct/(i+1)*100:.1f}%  "
+            print(f"  [{label}] [{done}/{len(problems)}] "
+                  f"Acc: {correct/done*100:.1f}%  "
                   f"boxed: {boxed_rate*100:.0f}%", flush=True)
+
+    tokenizer.padding_side = orig_padding_side
 
     result = {
         "accuracy": correct / len(problems) * 100,

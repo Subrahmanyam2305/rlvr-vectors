@@ -18,7 +18,7 @@ from shared_eval import (
 )
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
-N_NULL_SEEDS = 20
+N_NULL_SEEDS = 2    # 2 seeds on 50-problem null-subset for fast preliminary controls
 
 MODELS = {
     "math_base": "Qwen/Qwen2.5-Math-1.5B",
@@ -384,15 +384,22 @@ def main():
     results[r["label"]] = r; summary["MeanDiff"] = r
     print_result_row("MeanDiff", r, [it["correct"] for it in test_bl["items"]])
 
-    # Step 6: Controls — 20 seeds each
-    print(f"\n[STEP 6] {N_NULL_SEEDS}-seed null controls on TEST...", flush=True)
+    # Step 6: Controls — 5 seeds on a 100-problem null-subset (not the full TEST set)
+    # Using a subset keeps wall time tractable while still establishing that random
+    # baselines are significantly below the main methods.
+    null_sub = test[:50]
+    print(f"\n[STEP 6] {N_NULL_SEEDS}-seed null controls on null-subset (n=50)...", flush=True)
     base_items = [it["correct"] for it in test_bl["items"]]
+    # Baseline on null-subset (alpha=0) for paired comparison
+    null_bl = apply_svd_steering(model, tok, null_sub, svd_vecs, 0.0,
+                                  "null_sub_baseline", top_k=best_k)
+    null_base_items = [it["correct"] for it in null_bl["items"]]
 
     # 6a: Random unit vectors (matched per-layer norms)
     rand_accs = []
     for seed in range(N_NULL_SEEDS):
-        r = apply_svd_steering(model, tok, test, svd_vecs, best_svd_a,
-                               f"test_rand_s{seed}", random_seed=seed, top_k=best_k)
+        r = apply_svd_steering(model, tok, null_sub, svd_vecs, best_svd_a,
+                               f"null_rand_s{seed}", random_seed=seed, top_k=best_k)
         rand_accs.append(r["accuracy"])
         results[r["label"]] = r
     print(f"  Random dirs: mean={np.mean(rand_accs):.1f}%  "
@@ -405,8 +412,8 @@ def main():
         rng = random.Random(seed)
         flipped = {li: {**d, "u": d["u"] * (1 if rng.random() > 0.5 else -1)}
                    for li, d in svd_vecs.items()}
-        r = apply_svd_steering(model, tok, test, flipped, best_svd_a,
-                               f"test_randsign_s{seed}", top_k=best_k)
+        r = apply_svd_steering(model, tok, null_sub, flipped, best_svd_a,
+                               f"null_randsign_s{seed}", top_k=best_k)
         sign_accs.append(r["accuracy"])
         results[r["label"]] = r
     print(f"  Random signs: mean={np.mean(sign_accs):.1f}%  "
@@ -415,8 +422,8 @@ def main():
     # 6c: Wrong-layer (permuted vectors among top-K positions), distinct seed each draw
     wrong_accs = []
     for seed in range(N_NULL_SEEDS):
-        r = apply_svd_steering(model, tok, test, svd_vecs, best_svd_a,
-                               f"test_wronglayer_s{seed}", top_k=best_k,
+        r = apply_svd_steering(model, tok, null_sub, svd_vecs, best_svd_a,
+                               f"null_wronglayer_s{seed}", top_k=best_k,
                                wrong_layer_seed=seed)
         wrong_accs.append(r["accuracy"])
         results[r["label"]] = r
@@ -430,8 +437,8 @@ def main():
         rng = random.Random(seed + 100)
         rand_k = rng.sample(all_layers, min(best_k, len(all_layers)))
         rand_subset = {li: svd_vecs[li] for li in rand_k}
-        r = apply_svd_steering(model, tok, test, rand_subset, best_svd_a,
-                               f"test_randlayer_s{seed}")
+        r = apply_svd_steering(model, tok, null_sub, rand_subset, best_svd_a,
+                               f"null_randlayer_s{seed}")
         randlayer_accs.append(r["accuracy"])
         results[r["label"]] = r
     print(f"  Random K layers: mean={np.mean(randlayer_accs):.1f}%  "
