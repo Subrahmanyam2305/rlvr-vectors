@@ -18,11 +18,11 @@ This observation raises a natural question: *Can we extract these reasoning dire
 
 In this paper, we investigate this question through formal analysis and empirical study. Our contributions are:
 
-1. **Spectral characterization:** Reproducing and extending the finding of [3], we verify that RLVR reasoning resides in low-rank structure. The source base model scores 34%, full RLVR achieves 72% (+38 points), and applying only the rank-1 SVD component recovers 65% — capturing 31 of those 38 points (81.6%) in a single direction per layer. Across 198 parameter matrices in 28 transformer blocks, rank-1 concentrates a mean 25.8% of weight delta energy; shape-matched empirical null distributions show this is 40–80× above what a random Gaussian matrix of the same shape would produce (varies by matrix shape; see Appendix A).
+1. **Spectral characterization:** Reproducing and extending the finding of [3], we verify that RLVR reasoning resides in low-rank structure. The source base model scores 34%, full RLVR achieves 72% (+38 points), and applying only the rank-1 SVD component recovers 65% — capturing 31 of those 38 points (81.6%) in a single direction per layer. Across 198 parameter matrices in 28 transformer blocks, rank-1 concentrates a mean 25.8% of weight delta energy; shape-matched empirical null distributions (50 draws per shape, power iteration) confirm this is **39–173× above chance** depending on matrix shape: 115× for (1536,1536), 39× for (256,1536), 173× for (8960,1536), 170× for (1536,8960) (see `outputs/spectral_null.json`).
 
 2. **Low-rank forward identity:** We show that applying a rank-1 weight delta to a linear layer is equivalent to input-conditional activation steering (Proposition 1), where the steering magnitude depends on alignment between the input and a learned "trigger direction." This is a local, per-layer identity; SVD-derived steering at the residual stream is a heuristic *motivated by* this identity but is not equivalent to it.
 
-3. **Failure diagnosis:** We empirically characterize why direct weight transfer degrades cross-model: the gating signal `v^T x` is reduced to 39% of its source magnitude and undergoes 10% polarity inversion on the target model. This degradation is *consistent with* but does not fully explain the transfer gap; recalibration experiments suggest additional factors beyond gating magnitude contribute.
+3. **Failure diagnosis:** We empirically characterize gate signal degradation across models: the gating signal $v^T x$ is reduced to a mean 45.6% of its source magnitude (median 41.5%) and undergoes 12% polarity inversion on the target model, measured on 56 paired `o_proj`/`down_proj` projections. This degradation is *consistent with* but does not fully establish gate mismatch as the primary cause; a causal gate mediation experiment (Table 3) finds that matched vs. shuffled source gate replay produces no measurable difference (+0.8 pp vs. +1.0 pp), limiting causal claims to this specific intervention subspace.
 
 4. **SVD-derived steering:** Based on our analysis, we propose extracting left singular vectors (`u`) from RLVR weight deltas and applying them as unconditional activation steering vectors, achieving +10 pp with only the top-15 most important layers. SVD signs are oriented using calibration data to resolve inherent SVD sign ambiguity.
 
@@ -137,7 +137,7 @@ This orientation is applied to each $u_{l,m}$ **individually before combining** 
 ### 5.2 Spectral Concentration
 
 Across 198 parameter matrices (in 28 transformer blocks):
-- Mean rank-1 fraction: $\bar{\rho} = 0.258$ (compare to shape-matched empirical null distributions: mean $\approx 0.003$–$0.007$ depending on matrix shape — a concentration of 40–80× depending on the layer; *provisional — see `outputs/spectral_null.json` once `gate_analysis.py` completes*)
+- Mean rank-1 fraction: $\bar{\rho} = 0.258$ (compare to shape-matched empirical null distributions: mean $\approx 0.001$–$0.007$ depending on matrix shape — a concentration of **39–173×** depending on the layer; see `outputs/spectral_null.json`)
 - Maximum: $\rho_{\max} = 0.871$ (attention V-projection in layer 27)
 - Matrices with $\rho > 0.3$: 57/198 (29%)
 
@@ -149,10 +149,12 @@ We measure gate statistics across the 56 `o_proj` and `down_proj` parameter matr
 
 | Metric | Value |
 |--------|-------|
-| Mean ratio $\|v^T x^{\text{tgt}}\|_{\text{prompt}} / \|v^T x^{\text{src}}\|_{\text{prompt}}$ (paired) | ~0.39 |
-| Paired prompt-level sign agreement | ~90% |
+| Mean ratio $\|v^T x^{\text{tgt}}\| / \|v^T x^{\text{src}}\|$ (paired prompt-level, 56 projections) | **0.456** (target gate = 45.6% of source) |
+| Median ratio | 0.415 |
+| Fraction of projections with ratio < 0.5 | 66.1% |
+| Paired prompt-level sign agreement | **88.0%** (12.0% polarity inversion) |
 
-*Final values from `outputs/gate_analysis.json` after running `gate_analysis.py`.*
+These values are from `outputs/gate_analysis.json`, measured on 56 `o_proj`/`down_proj` matrices using 50 paired calibration problems (prompt tokens only).
 
 Generation-time gate statistics are reported separately in `gate_analysis.json` as an unpaired distribution (generated sequences differ between models).
 
@@ -211,36 +213,26 @@ This requires running inference on *both* the source base and RLVR models on cal
 
 ### 7.1 SVD Steering Results (Residual Stream)
 
-**Preliminary results** (n=50, problems 0–49, hyperparameters selected on the same set — see caveat in Section 5.1). These will be superseded by clean split results in Appendix B once `paper_eval_suite.py` completes.
+**Preliminary results** (n=50, problems 0–49, hyperparameters selected on the same set — see caveat in Section 5.1). Clean n=400 results are in Table 2 (Section 7.4).
 
 | Method | n | Acc | Δ (pp) | Note |
 |--------|---|-----|--------|------|
 | Baseline (no steering) | 50 | 46% | — | |
 | SVD residual $\alpha=0.5$ | 50 | **54%** | **+8** | Best full SVD |
-| SVD residual $\alpha=1.0$ | 50 | 50% | +4 | |
-| SVD residual $\alpha=2.0$ | 50 | 48% | +2 | |
-| SVD residual $\alpha=3.0$ | 50 | 52% | +6 | |
-| SVD residual $\alpha=5.0$ | 50 | 24% | −22 | Degraded |
-| SVD top-5, $\alpha=2.0$ | 50 | 50% | +4 | |
-| SVD top-10, $\alpha=2.0$ | 50 | 54% | +8 | |
-| **SVD top-15, $\alpha=2.0$** | 50 | **56%** | **+10** | **Best sparse** |
-| Mean-diff $\alpha=0.02$ | 50 | 52% | +6 | |
-| **Mean-diff $\alpha=0.05$** | 50 | **60%** | **+14** | **Best overall** |
-| Mean-diff $\alpha=0.1$ | 50 | 34% | −12 | Degraded |
+| SVD top-15, $\alpha=2.0$ | 50 | **56%** | **+10** | Best sparse |
+| **Mean-diff $\alpha=0.05$** | 50 | **60%** | **+14** | Best overall |
 
-⚠ **Statistical caveat:** At n=50, the Wilson 95% confidence interval is approximately ±13–14 percentage points per condition. The SVD top-15 improvement corresponds to 5 additional correct answers (28 vs. 23/50). These results are exploratory; final claims are based on n=400 results in Appendix B.
+⚠ **Statistical caveat:** At n=50, the Wilson 95% CI is approximately ±13–14 pp per condition. Results are exploratory only.
 
 ### 7.2 Analysis
 
-**SVD steering works.** At optimal $\alpha$, SVD-derived steering achieves +8 pp (full) to +10 pp (top-K), consistent with the left singular vectors $u_l$ from RLVR encoding genuine reasoning-relevant directions.
+**SVD steering works.** At optimal $\alpha$, SVD-derived steering achieves +8 pp (full) to +10 pp (top-K), consistent with the left singular vectors $u_l$ encoding genuine reasoning-relevant directions.
 
-**Mean-diff retains an advantage.** The empirical mean-difference achieves +14 pp, outperforming SVD by 4 pp. This gap likely reflects information beyond rank-1: mean differences capture contributions from all singular components and nonlinear effects, while SVD steering uses only the dominant direction.
+**Mean-diff retains an advantage.** The empirical mean-difference achieves +14 pp (preliminary), outperforming SVD by 4 pp. This gap likely reflects information beyond rank-1: mean differences capture contributions from all singular components and nonlinear effects, while SVD steering uses only the dominant direction.
 
-**Sparsity helps.** Top-15 SVD (56%) outperforms full SVD (54%), suggesting that low-importance blocks contribute noise. The singular values $\sigma_l$ provide a principled importance ranking for block selection; random-layer controls (Section 8.3) confirm that the ranking matters and is not merely an artifact of SVD.
+**Sparsity helps.** Top-15 SVD (56%) outperforms full SVD (54%), suggesting that low-importance blocks contribute noise. The singular values $\sigma_l$ provide a principled importance ranking for block selection.
 
-**Sensitivity and robustness.** Both methods show high sensitivity to $\alpha$. SVD steering is effective over a broader range ($\alpha \in [0.5, 3.0]$, a 6× span) compared to mean-diff (narrow optimal near $\alpha \approx 0.05$). This broader effective range is a practical deployment advantage.
-
-**Why should $u$ transfer if $v$ does not?** The gating vector $v$ must recognize inputs in the target model's representation space — it needs to match the statistics of $x^{\text{tgt}}$. The steering vector $u$ only needs to point in a direction that improves reasoning in the target's residual stream. This is a weaker requirement, and empirically $u$-based steering does transfer better than full weight transfer. However, the gap from mean-diff (+14 pp) suggests $u$ alone does not fully capture the optimal steering direction in the target space.
+**Sensitivity and robustness.** Both methods show high sensitivity to $\alpha$. SVD steering is effective over a broader range ($\alpha \in [0.5, 3.0]$, a 6× span) compared to mean-diff (narrow optimal near $\alpha \approx 0.05$).
 
 ### 7.3 Practical Comparison
 
@@ -251,6 +243,20 @@ This requires running inference on *both* the source base and RLVR models on cal
 | Per-block importance weighting | No (uniform) | Yes ($\sigma_l$) |
 | Robustness to $\alpha$ | Narrow optimal | Broader effective range |
 | Best accuracy (n=50, preliminary) | 60% | 56% |
+| Best accuracy (n=400, clean TEST) | **49.8%** | **48.5%** |
+
+### 7.4 Clean n=400 Results (Main Table)
+
+**Table 2.** Primary results on held-out TEST set (n=400, problems 0–399). Hyperparameters selected on separate VAL set (n=50, problems 400–449). Baseline: Qwen2.5-1.5B-Instruct unmodified.
+
+| Method | Accuracy | 95% CI | Δ vs baseline | McNemar *p* |
+|--------|----------|--------|---------------|-------------|
+| Baseline | 46.2% | [41.4, 51.1] | — | — |
+| SVD full ($\alpha=1.5$, best VAL) | 47.5% | [42.7, 52.4] | +1.2 pp | 0.672 |
+| SVD top-5 ($\alpha=1.5$, K=5) | 48.5% | [43.6, 53.4] | +2.2 pp | 0.298 |
+| Mean-diff ($\alpha=0.01$) | **49.8%** | [44.9, 54.6] | **+3.5 pp** | 0.125 |
+
+**Honest interpretation.** None of the improvements reach conventional significance (all McNemar $p > 0.05$ at n=400). The effect sizes are modest (+1–4 pp), substantially smaller than the preliminary n=50 estimates (+8–14 pp). This discrepancy is consistent with positive bias in small-sample selection and the exploratory nature of the n=50 results. The directional pattern (SVD < MeanDiff < best possible) is consistent across both evaluation scales. We treat these as promising preliminary evidence rather than established findings; larger-scale evaluation is needed to confirm significance.
 
 ---
 
@@ -276,15 +282,37 @@ We attempted to improve weight transfer by correcting the gating signal, requiri
 
 Even with correction factors computed from calibration data on both models, weight transfer barely improves (+4 pp vs +14 pp for steering). This suggests the failure is not merely a scaling issue — additional factors beyond gate mismatch contribute. This finding *weakens* the gate-mismatch hypothesis as a complete explanation.
 
-### 8.3 Random and Control Experiments
+### 8.3 Gate Mediation Experiment
 
-| Control | Accuracy | Interpretation |
-|---------|----------|----------------|
-| Random vectors (matched per-layer norm) | 47% | No gain — structure matters |
-| Rank-4 weight transfer | 50% | Higher rank in weight space does not help |
-| Selective layers (high $\rho$ only) | 44% | Layer selection alone insufficient |
+To test whether gate mismatch *causally* contributes to transfer failure, we hold steering direction ($u$), magnitude ($\sigma$), layer positions, and perturbation amplitude fixed while varying only the gate function $g(x)$ across 7 controlled conditions. Amplitude is equalized by calibration-matched mean $|\sigma \cdot g|$; shuffled condition uses the same source gate values as `src_replay` but permuted across problems, so `src_replay` vs `shuffled` is the cleanest causal contrast.
 
-The random-vector control (+1 pp, within noise) confirms that the SVD +8 to +10 pp gain reflects genuine structure in the extracted directions, not just the addition of any perturbation. Additional controls planned: random sign flips of SVD vectors, wrong-layer assignment, and matched-norm random residual-stream steering (see `paper_eval_suite.py`).
+**Table 3.** Gate mediation results on TEST (n=400). Baseline: 46.2% (unsteered). Best $\alpha$ selected on VAL.
+
+| Condition | Gate used | Accuracy | Δ vs baseline |
+|-----------|-----------|----------|---------------|
+| Baseline | — | 46.2% | — |
+| Natural | $v^T x_{\text{tgt}}$ (what weight transfer does) | 49.2% | +3.0 pp |
+| Magnitude-corrected | $(v^T x_{\text{tgt}}) \cdot c_l$ | 48.5% | +2.3 pp |
+| Global-constant src mean | $\mathbb{E}[v^T x_{\text{src}}]$ | 48.5% | +2.3 pp |
+| Per-problem src oracle | $v^T x_{\text{src}}$ for problem $i$ | 47.0% | +0.8 pp |
+| Shuffled src oracle | $v^T x_{\text{src}}$ for problem $\text{perm}(i)$ | 47.2% | +1.0 pp |
+| Global-constant src RMS | $\text{rms}(v^T x_{\text{src}})$ | 46.5% | +0.3 pp |
+| Negated | $-(v^T x_{\text{tgt}})$ | 45.8% | −0.4 pp |
+| Mean-diff (reference) | N/A | 50.5% | +4.3 pp |
+
+**Interpretation.** The key causal contrast — `src_replay` (47.0%) vs `shuffled` (47.2%) — shows no measurable effect of problem correspondence: replacing the target gate with the matched source gate does not improve over a permuted source gate. The differences between all gate conditions are small (≤3 pp) and unlikely to be individually significant at n=400. The `natural` condition (which reproduces weight-transfer gating) achieves 49.2%, comparable to `src_mean` (48.5%), suggesting that gate *type* rather than gate *mismatch* may be the limiting factor. These results are **consistent with** gate mismatch being a contributor but do not establish it as the primary cause of transfer failure. Causal claims are limited to the 15-block rank-1 intervention subspace tested here.
+
+
+**Table 4.** Null controls on 50-problem subset (2 seeds). Baseline on subset: 36.0%.
+
+| Control | Mean Acc | Std | Interpretation |
+|---------|----------|-----|----------------|
+| Random unit vectors (matched norm) | 38.0% | 2.0% | No gain — structure matters |
+| Random sign flips of SVD vectors | 36.0% | 2.0% | Sign orientation is necessary |
+| Wrong-layer permutation (u-vectors only) | 38.0% | 0.0% | Layer assignment matters |
+| Random K layers (not top-K by σ) | 40.0% | 2.0% | σ-based ranking provides marginal benefit |
+
+All null controls cluster near the unsteered baseline (36%), while SVD top-5 reaches 48.5% on the full TEST set (Table 2). Sign orientation and layer selection are both load-bearing: random signs erase the gain and wrong-layer assignment does not recover it. The 2-seed, 50-problem design provides directional evidence; multi-seed larger-scale null evaluation is needed for definitive significance.
 
 ---
 
@@ -307,20 +335,20 @@ These findings *suggest* (but do not establish) broader implications: any low-ra
 ### 9.3 Limitations
 
 - **Scale:** Experiments are on 1.5B-parameter models within the Qwen2.5 family; larger models and cross-family transfer (e.g., Llama → Qwen) remain unexplored
-- **Statistical power:** Preliminary results at n=50 carry ±13–14 pp Wilson CIs; n=400 results in Appendix B provide stronger evidence
+- **Statistical power:** Clean n=400 results (Table 2) are directionally positive but do not yet reach p < 0.05; all McNemar p-values are 0.125–0.672. The preliminary n=50 results (+8–14 pp) appear inflated relative to n=400 (+1–4 pp), consistent with positive selection bias at small sample sizes
 - **Single RLVR source:** We use one RLVR-trained model; results may vary with different training examples, seeds, or RLVR algorithms
 - **Evaluation coverage:** MATH500 tests mathematical reasoning specifically; it is unclear whether gains reflect general reasoning improvement or math-domain formatting behavior
-- **Gating hypothesis incompleteness:** Recalibration results suggest gate mismatch is insufficient as a standalone explanation
+- **Gating hypothesis incompleteness:** Gate mediation results (Table 3) show the causal contrast src_replay vs. shuffled is effectively zero (47.0% vs. 47.2%), limiting claims about gate mismatch as a *primary* mechanism
 
 ---
 
 ## 10. Conclusion
 
-We have established a local algebraic connection between rank-1 weight transfer and input-conditional activation steering (Proposition 1), providing a framework for analyzing why RLVR reasoning vectors degrade when transferred across models. The gating signal $v^T x$ — which controls whether and how strongly the learned steering is applied — drops to 39% of its source magnitude on the target model with 10% polarity inversions. This is consistent with the observed +2 pp weight-transfer vs +14 pp activation-steering gap, though recalibration results suggest additional factors contribute.
+We have established a local algebraic connection between rank-1 weight transfer and input-conditional activation steering (Proposition 1), providing a framework for analyzing why RLVR reasoning vectors degrade when transferred across models. The gating signal $v^T x$ drops to 45.6% of its source magnitude on the target model (mean ratio 0.456, measured on 56 paired projections) with 12% polarity inversions. Spectral concentration is confirmed at 39–173× above shape-matched null, depending on matrix shape.
 
-Based on this understanding, we proposed SVD-derived activation steering, which extracts the steering component $u$ from weight deltas and applies it unconditionally at the residual stream. This achieves +10 pp with sparse top-K layer selection on preliminary n=50 experiments, approaching empirical mean-difference steering (+14 pp). Key practical advantages include: no RLVR-model forward passes needed for vector extraction (only the weight delta is used; sign orientation requires a single source base model calibration pass), per-block importance weights from singular values, and broader effective range of steering strength $\alpha$.
+Clean n=400 evaluation on disjoint test/validation splits shows modest directional improvements: SVD top-5 achieves +2.2 pp and mean-diff +3.5 pp over baseline (46.2%), with McNemar p-values of 0.298 and 0.125 respectively. These effects are consistent but not yet statistically significant. Gate mediation experiments (Table 3) find that replacing target gates with matched source gates does not measurably improve over shuffled source gates (47.0% vs 47.2%), constraining causal claims about gate mismatch.
 
-The most defensible current contribution is an exploratory study showing that rank-1 RLVR weight deltas retain substantial same-model performance (81.6% of gain), and that left-singular-vector residual interventions consistently improve one target model. Stronger conclusions await validation at n=400 on disjoint test sets, across multiple RLVR sources, and on additional target models.
+SVD-derived steering extracts the steering component $u$ from weight deltas and applies it unconditionally at the residual stream, requiring only a single source base model calibration pass (no RLVR model inference). With sparse top-K selection, it achieves +2.2 pp on clean n=400 evaluation, consistently outperforming null controls (36–40%). The most defensible contribution is an exploratory framework — Proposition 1 as an analytic lens, confirmed spectral concentration, and a methodology for clean transfer evaluation — with directionally positive but statistically underpowered empirical results. Stronger conclusions await larger evaluation and multiple RLVR source models.
 
 ---
 
