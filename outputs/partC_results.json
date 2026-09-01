@@ -1,0 +1,10 @@
+{
+  "baseline": {
+    "accuracy": 46.2,
+    "boxed_rate": 0.87
+  },
+  "weight_transfer_proj_only": {
+    "accuracy": 47.8,
+    "boxed_rate": 0.9
+  }
+}

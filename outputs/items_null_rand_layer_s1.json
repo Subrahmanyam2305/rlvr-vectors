@@ -1,0 +1,409 @@
+{
+  "accuracy": 38.0,
+  "correct": 19,
+  "total": 50,
+  "label": "null_rand_layer_s1",
+  "boxed_rate": 0.52,
+  "items": [
+    {
+      "idx": 0,
+      "gold": "\\left( 3, \\frac{\\pi}{2} \\right)",
+      "pred": "(3, \\frac{\\pi}{2})",
+      "correct": true,
+      "response_len": 187,
+      "has_boxed": true
+    },
+    {
+      "idx": 1,
+      "gold": "p - q",
+      "pred": "",
+      "correct": false,
+      "response_len": 200,
+      "has_boxed": false
+    },
+    {
+      "idx": 2,
+      "gold": "\\frac{14}{3}",
+      "pred": "\\frac{14}{3}",
+      "correct": true,
+      "response_len": 198,
+      "has_boxed": true
+    },
+    {
+      "idx": 3,
+      "gold": "9",
+      "pred": "9",
+      "correct": true,
+      "response_len": 192,
+      "has_boxed": true
+    },
+    {
+      "idx": 4,
+      "gold": "\\text{Evelyn}",
+      "pred": "",
+      "correct": false,
+      "response_len": 232,
+      "has_boxed": false
+    },
+    {
+      "idx": 5,
+      "gold": "42",
+      "pred": "42",
+      "correct": true,
+      "response_len": 181,
+      "has_boxed": true
+    },
+    {
+      "idx": 6,
+      "gold": "27",
+      "pred": "",
+      "correct": false,
+      "response_len": 295,
+      "has_boxed": false
+    },
+    {
+      "idx": 7,
+      "gold": "90^\\circ",
+      "pred": "",
+      "correct": false,
+      "response_len": 199,
+      "has_boxed": false
+    },
+    {
+      "idx": 8,
+      "gold": "3\\sqrt{13}",
+      "pred": "3\\sqrt{13}",
+      "correct": true,
+      "response_len": 148,
+      "has_boxed": true
+    },
+    {
+      "idx": 9,
+      "gold": "4",
+      "pred": "2",
+      "correct": false,
+      "response_len": 218,
+      "has_boxed": true
+    },
+    {
+      "idx": 10,
+      "gold": "2220",
+      "pred": "\\text{No solution}",
+      "correct": false,
+      "response_len": 247,
+      "has_boxed": true
+    },
+    {
+      "idx": 11,
+      "gold": "\\frac{3}{56}",
+      "pred": "",
+      "correct": false,
+      "response_len": 258,
+      "has_boxed": false
+    },
+    {
+      "idx": 12,
+      "gold": "284",
+      "pred": "",
+      "correct": false,
+      "response_len": 288,
+      "has_boxed": false
+    },
+    {
+      "idx": 13,
+      "gold": "5",
+      "pred": "5",
+      "correct": true,
+      "response_len": 133,
+      "has_boxed": true
+    },
+    {
+      "idx": 14,
+      "gold": "\\sqrt{51}",
+      "pred": "4.998",
+      "correct": false,
+      "response_len": 231,
+      "has_boxed": true
+    },
+    {
+      "idx": 15,
+      "gold": "6 - 5i",
+      "pred": "",
+      "correct": false,
+      "response_len": 212,
+      "has_boxed": false
+    },
+    {
+      "idx": 16,
+      "gold": "-50",
+      "pred": "-50",
+      "correct": true,
+      "response_len": 98,
+      "has_boxed": true
+    },
+    {
+      "idx": 17,
+      "gold": "\\pi",
+      "pred": "",
+      "correct": false,
+      "response_len": 337,
+      "has_boxed": false
+    },
+    {
+      "idx": 18,
+      "gold": "28",
+      "pred": "28",
+      "correct": true,
+      "response_len": 262,
+      "has_boxed": true
+    },
+    {
+      "idx": 19,
+      "gold": "3",
+      "pred": "",
+      "correct": false,
+      "response_len": 291,
+      "has_boxed": false
+    },
+    {
+      "idx": 20,
+      "gold": "6+9i",
+      "pred": "6 + 9i",
+      "correct": true,
+      "response_len": 101,
+      "has_boxed": true
+    },
+    {
+      "idx": 21,
+      "gold": "13535",
+      "pred": "",
+      "correct": false,
+      "response_len": 197,
+      "has_boxed": false
+    },
+    {
+      "idx": 22,
+      "gold": "5",
+      "pred": "",
+      "correct": false,
+      "response_len": 318,
+      "has_boxed": false
+    },
+    {
+      "idx": 23,
+      "gold": "x=5",
+      "pred": "",
+      "correct": false,
+      "response_len": 307,
+      "has_boxed": false
+    },
+    {
+      "idx": 24,
+      "gold": "10",
+      "pred": "48.5",
+      "correct": false,
+      "response_len": 240,
+      "has_boxed": true
+    },
+    {
+      "idx": 25,
+      "gold": "1,-2",
+      "pred": "",
+      "correct": false,
+      "response_len": 264,
+      "has_boxed": false
+    },
+    {
+      "idx": 26,
+      "gold": "144",
+      "pred": "",
+      "correct": false,
+      "response_len": 340,
+      "has_boxed": false
+    },
+    {
+      "idx": 27,
+      "gold": "78",
+      "pred": "78",
+      "correct": true,
+      "response_len": 219,
+      "has_boxed": true
+    },
+    {
+      "idx": 28,
+      "gold": "-2 + 7i",
+      "pred": "-2 + 7i",
+      "correct": true,
+      "response_len": 129,
+      "has_boxed": true
+    },
+    {
+      "idx": 29,
+      "gold": "225",
+      "pred": "225",
+      "correct": true,
+      "response_len": 248,
+      "has_boxed": true
+    },
+    {
+      "idx": 30,
+      "gold": "52_8",
+      "pred": "",
+      "correct": false,
+      "response_len": 290,
+      "has_boxed": false
+    },
+    {
+      "idx": 31,
+      "gold": "11\\sqrt2",
+      "pred": "11\\sqrt{2}",
+      "correct": true,
+      "response_len": 117,
+      "has_boxed": true
+    },
+    {
+      "idx": 32,
+      "gold": "720",
+      "pred": "720",
+      "correct": true,
+      "response_len": 236,
+      "has_boxed": true
+    },
+    {
+      "idx": 33,
+      "gold": "\\frac{243}{625}",
+      "pred": "",
+      "correct": false,
+      "response_len": 199,
+      "has_boxed": false
+    },
+    {
+      "idx": 34,
+      "gold": "-125",
+      "pred": "",
+      "correct": false,
+      "response_len": 185,
+      "has_boxed": false
+    },
+    {
+      "idx": 35,
+      "gold": "3",
+      "pred": "",
+      "correct": false,
+      "response_len": 243,
+      "has_boxed": false
+    },
+    {
+      "idx": 36,
+      "gold": "3, 5, 7",
+      "pred": "",
+      "correct": false,
+      "response_len": 197,
+      "has_boxed": false
+    },
+    {
+      "idx": 37,
+      "gold": "72",
+      "pred": "72",
+      "correct": true,
+      "response_len": 157,
+      "has_boxed": true
+    },
+    {
+      "idx": 38,
+      "gold": "2000",
+      "pred": "2000",
+      "correct": true,
+      "response_len": 109,
+      "has_boxed": true
+    },
+    {
+      "idx": 39,
+      "gold": "23",
+      "pred": "15",
+      "correct": false,
+      "response_len": 147,
+      "has_boxed": true
+    },
+    {
+      "idx": 40,
+      "gold": "12",
+      "pred": "12",
+      "correct": true,
+      "response_len": 192,
+      "has_boxed": true
+    },
+    {
+      "idx": 41,
+      "gold": "17",
+      "pred": "",
+      "correct": false,
+      "response_len": 297,
+      "has_boxed": false
+    },
+    {
+      "idx": 42,
+      "gold": "4",
+      "pred": "4",
+      "correct": true,
+      "response_len": 182,
+      "has_boxed": true
+    },
+    {
+      "idx": 43,
+      "gold": "70 \\sqrt{2}",
+      "pred": "",
+      "correct": false,
+      "response_len": 213,
+      "has_boxed": false
+    },
+    {
+      "idx": 44,
+      "gold": "1.25",
+      "pred": "",
+      "correct": false,
+      "response_len": 217,
+      "has_boxed": false
+    },
+    {
+      "idx": 45,
+      "gold": "2",
+      "pred": "",
+      "correct": false,
+      "response_len": 229,
+      "has_boxed": false
+    },
+    {
+      "idx": 46,
+      "gold": "6",
+      "pred": "",
+      "correct": false,
+      "response_len": 258,
+      "has_boxed": false
+    },
+    {
+      "idx": 47,
+      "gold": "5",
+      "pred": "7",
+      "correct": false,
+      "response_len": 81,
+      "has_boxed": true
+    },
+    {
+      "idx": 48,
+      "gold": "\\frac{3}{2}",
+      "pred": "4^6",
+      "correct": false,
+      "response_len": 92,
+      "has_boxed": true
+    },
+    {
+      "idx": 49,
+      "gold": "83",
+      "pred": "83",
+      "correct": true,
+      "response_len": 164,
+      "has_boxed": true
+    }
+  ]
+}

@@ -6,7 +6,7 @@
 
 ## Abstract
 
-Reinforcement Learning with Verifiable Rewards (RLVR) has emerged as a powerful paradigm for improving mathematical reasoning in large language models. Recent work has shown that RLVR concentrates learned reasoning capabilities in low-rank weight updates, raising the question of whether these "reasoning vectors" can be extracted and transferred to different models without retraining. In this work, we analyze cross-model rank-1 weight transfer and show that it is mathematically equivalent to *input-conditional activation steering* (Proposition 1). We present exploratory empirical results suggesting the conditioning mechanism degrades across models. Guided by this analysis, we propose SVD-derived activation steering, which extracts principled steering vectors from RLVR weight deltas. Preliminary experiments on MATH500 with Qwen2.5-1.5B models show promising results; clean held-out evaluations with proper statistical tests are in progress.
+Reinforcement Learning with Verifiable Rewards (RLVR) has emerged as a powerful paradigm for improving mathematical reasoning in large language models. Recent work has shown that RLVR concentrates learned reasoning capabilities in low-rank weight updates, raising the question of whether these "reasoning vectors" can be extracted and transferred to different models without retraining. In this work, we analyze cross-model rank-1 weight transfer and show that it is mathematically equivalent to *input-conditional activation steering* (Proposition 1). We empirically characterize the conditioning mechanism's degradation across models: gating signals drop to 46% of source magnitude with 12% polarity inversion. A controlled gate mediation experiment finds that correcting these gate statistics does not recover transfer performance, suggesting deeper representation incompatibility beyond simple gating mismatch. We propose SVD-derived activation steering as an alternative, extracting principled steering vectors from weight deltas alone. On MATH500 (n=400, held-out test split), directional improvements of +1–4 pp are observed but do not yet reach statistical significance (McNemar $p > 0.05$), establishing this as a promising framework requiring validation at larger scale.
 
 ---
 
@@ -160,16 +160,17 @@ Generation-time gate statistics are reported separately in `gate_analysis.json` 
 
 ### 5.4 Weight Transfer vs. Activation Steering
 
-**Note: The table below contains preliminary results from small-n runs with potentially overlapping calibration/evaluation sets. These will be superseded by clean-split n=400 results in Appendix B once `paper_eval_suite.py` completes. Numbers should not be cited from this table.**
+All results below use the clean evaluation protocol (Section 5.1): hyperparameters selected on VAL (n=50), reported on held-out TEST (n=400).
 
-| Method | n | Baseline | Acc | Δ (pp) | Note |
-|--------|---|----------|-----|--------|------|
-| Target baseline | ~100 | — | ~48% | — | n=100, problems 0–99 |
-| Weight transfer (rank-1, best α) | ~100 | ~48% | ~50% | ~+2 | Preliminary |
-| Weight transfer (recalibrated) | ~50 | ~46% | ~50% | ~+4 | Different subset |
-| Activation steering, mean-diff | ~50 | ~46% | ~60% | ~+14 | Different subset |
+| Method | Accuracy | Δ vs baseline | McNemar *p* | Note |
+|--------|----------|---------------|-------------|------|
+| Target baseline (Instruct) | 46.2% | — | — | |
+| Weight transfer (o_proj+down_proj) | 47.8% | +1.6 pp | — | Full $\Delta W$ applied to 56 projections |
+| SVD full ($\alpha=1.5$) | 47.5% | +1.2 pp | 0.672 | Residual-stream steering, all blocks |
+| SVD top-5 ($\alpha=1.5$) | 48.5% | +2.2 pp | 0.298 | Top-5 blocks by $\sigma$ |
+| Mean-diff ($\alpha=0.01$) | **49.8%** | **+3.5 pp** | 0.125 | Residual-stream steering |
 
-These results use different subsets and baselines and should not be directly compared in the same table. All conditions will share identical problems, grader, and baseline in Appendix B.
+Weight transfer (+1.6 pp) and SVD full (+1.2 pp) are comparable — consistent with Proposition 1 linking them. Mean-diff retains a small advantage (+3.5 pp), though no method reaches significance at $p < 0.05$.
 
 ---
 

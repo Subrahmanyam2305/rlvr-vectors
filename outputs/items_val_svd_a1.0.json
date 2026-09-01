@@ -1,0 +1,409 @@
+{
+  "accuracy": 48.0,
+  "correct": 24,
+  "total": 50,
+  "label": "val_svd_a1.0",
+  "boxed_rate": 0.78,
+  "items": [
+    {
+      "idx": 0,
+      "gold": "\\frac{14}{3}",
+      "pred": "7(\\sqrt{2}-1)",
+      "correct": false,
+      "response_len": 386,
+      "has_boxed": true
+    },
+    {
+      "idx": 1,
+      "gold": "\\frac{13}{4}",
+      "pred": "5",
+      "correct": false,
+      "response_len": 316,
+      "has_boxed": true
+    },
+    {
+      "idx": 2,
+      "gold": "1 - 12i",
+      "pred": "1 - 12i",
+      "correct": true,
+      "response_len": 197,
+      "has_boxed": true
+    },
+    {
+      "idx": 3,
+      "gold": "3",
+      "pred": "2",
+      "correct": false,
+      "response_len": 250,
+      "has_boxed": true
+    },
+    {
+      "idx": 4,
+      "gold": "3",
+      "pred": "3",
+      "correct": true,
+      "response_len": 230,
+      "has_boxed": true
+    },
+    {
+      "idx": 5,
+      "gold": "60",
+      "pred": "60",
+      "correct": true,
+      "response_len": 143,
+      "has_boxed": true
+    },
+    {
+      "idx": 6,
+      "gold": "0",
+      "pred": "0",
+      "correct": true,
+      "response_len": 183,
+      "has_boxed": true
+    },
+    {
+      "idx": 7,
+      "gold": "9",
+      "pred": "9",
+      "correct": true,
+      "response_len": 156,
+      "has_boxed": true
+    },
+    {
+      "idx": 8,
+      "gold": "\\begin{pmatrix} 1/5 \\\\ -18/5 \\end{pmatrix}",
+      "pred": "\\begin{pmatrix} 2 \\\\ 3 \\end{pmatrix}",
+      "correct": false,
+      "response_len": 321,
+      "has_boxed": true
+    },
+    {
+      "idx": 9,
+      "gold": "2 \\sqrt{5}",
+      "pred": "",
+      "correct": false,
+      "response_len": 448,
+      "has_boxed": false
+    },
+    {
+      "idx": 10,
+      "gold": "6",
+      "pred": "6",
+      "correct": true,
+      "response_len": 282,
+      "has_boxed": true
+    },
+    {
+      "idx": 11,
+      "gold": "60",
+      "pred": "60",
+      "correct": true,
+      "response_len": 246,
+      "has_boxed": true
+    },
+    {
+      "idx": 12,
+      "gold": "406",
+      "pred": "",
+      "correct": false,
+      "response_len": 594,
+      "has_boxed": false
+    },
+    {
+      "idx": 13,
+      "gold": "5r^5",
+      "pred": "5r^5",
+      "correct": true,
+      "response_len": 146,
+      "has_boxed": true
+    },
+    {
+      "idx": 14,
+      "gold": "10",
+      "pred": "10",
+      "correct": true,
+      "response_len": 266,
+      "has_boxed": true
+    },
+    {
+      "idx": 15,
+      "gold": "9",
+      "pred": "6",
+      "correct": false,
+      "response_len": 296,
+      "has_boxed": true
+    },
+    {
+      "idx": 16,
+      "gold": "\\frac{1}{8}",
+      "pred": "0.126485497",
+      "correct": false,
+      "response_len": 350,
+      "has_boxed": true
+    },
+    {
+      "idx": 17,
+      "gold": "-2",
+      "pred": "-6",
+      "correct": false,
+      "response_len": 325,
+      "has_boxed": true
+    },
+    {
+      "idx": 18,
+      "gold": "2\\sqrt{5}",
+      "pred": "2\\sqrt{5}",
+      "correct": true,
+      "response_len": 224,
+      "has_boxed": true
+    },
+    {
+      "idx": 19,
+      "gold": "\\begin{pmatrix} -7 \\\\ 16 \\\\ 5 \\end{pmatrix}",
+      "pred": "",
+      "correct": false,
+      "response_len": 439,
+      "has_boxed": false
+    },
+    {
+      "idx": 20,
+      "gold": "\\begin{pmatrix} 16/49 \\\\ 48/49 \\\\ 24/49 \\end{pmatrix}",
+      "pred": "\\begin{pmatrix} \\frac{16}{49} \\\\ \\frac{48}{49} \\\\ \\frac{24}{49} \\end{pmatrix}",
+      "correct": true,
+      "response_len": 157,
+      "has_boxed": true
+    },
+    {
+      "idx": 21,
+      "gold": "27",
+      "pred": "",
+      "correct": false,
+      "response_len": 388,
+      "has_boxed": false
+    },
+    {
+      "idx": 22,
+      "gold": "\\{1\\pm\\sqrt{5},-2\\}",
+      "pred": "-6",
+      "correct": false,
+      "response_len": 426,
+      "has_boxed": true
+    },
+    {
+      "idx": 23,
+      "gold": "1440",
+      "pred": "",
+      "correct": false,
+      "response_len": 489,
+      "has_boxed": false
+    },
+    {
+      "idx": 24,
+      "gold": "600",
+      "pred": "600",
+      "correct": true,
+      "response_len": 218,
+      "has_boxed": true
+    },
+    {
+      "idx": 25,
+      "gold": "3R^2",
+      "pred": "\\frac{1}{9}(a^2 + b^2 + c^2)",
+      "correct": false,
+      "response_len": 407,
+      "has_boxed": true
+    },
+    {
+      "idx": 26,
+      "gold": "6\\sqrt{2}",
+      "pred": "6\\sqrt{2}",
+      "correct": true,
+      "response_len": 284,
+      "has_boxed": true
+    },
+    {
+      "idx": 27,
+      "gold": "29",
+      "pred": "29",
+      "correct": true,
+      "response_len": 173,
+      "has_boxed": true
+    },
+    {
+      "idx": 28,
+      "gold": "64",
+      "pred": "",
+      "correct": false,
+      "response_len": 450,
+      "has_boxed": false
+    },
+    {
+      "idx": 29,
+      "gold": "50",
+      "pred": "",
+      "correct": false,
+      "response_len": 364,
+      "has_boxed": false
+    },
+    {
+      "idx": 30,
+      "gold": "4.5",
+      "pred": "4.5",
+      "correct": true,
+      "response_len": 111,
+      "has_boxed": true
+    },
+    {
+      "idx": 31,
+      "gold": "\\left[ \\frac{\\pi^2}{8}, \\frac{5 \\pi^2}{4} \\right]",
+      "pred": "",
+      "correct": false,
+      "response_len": 415,
+      "has_boxed": false
+    },
+    {
+      "idx": 32,
+      "gold": "331",
+      "pred": "0",
+      "correct": false,
+      "response_len": 433,
+      "has_boxed": true
+    },
+    {
+      "idx": 33,
+      "gold": ".35625",
+      "pred": "",
+      "correct": false,
+      "response_len": 125,
+      "has_boxed": false
+    },
+    {
+      "idx": 34,
+      "gold": "32",
+      "pred": "32",
+      "correct": true,
+      "response_len": 381,
+      "has_boxed": true
+    },
+    {
+      "idx": 35,
+      "gold": "(-\\infty, 2) \\cup (3, \\infty)",
+      "pred": "(-\\infty, 2) \\cup (3, \\infty)",
+      "correct": true,
+      "response_len": 389,
+      "has_boxed": true
+    },
+    {
+      "idx": 36,
+      "gold": "4",
+      "pred": "",
+      "correct": false,
+      "response_len": 392,
+      "has_boxed": false
+    },
+    {
+      "idx": 37,
+      "gold": "3",
+      "pred": "5",
+      "correct": false,
+      "response_len": 261,
+      "has_boxed": true
+    },
+    {
+      "idx": 38,
+      "gold": "4",
+      "pred": "4",
+      "correct": true,
+      "response_len": 145,
+      "has_boxed": true
+    },
+    {
+      "idx": 39,
+      "gold": "x^8 + x^7 + x^6 + x^5 + x^4 + x^3 + x^2 + x + 1",
+      "pred": "",
+      "correct": false,
+      "response_len": 566,
+      "has_boxed": false
+    },
+    {
+      "idx": 40,
+      "gold": "14",
+      "pred": "14",
+      "correct": true,
+      "response_len": 185,
+      "has_boxed": true
+    },
+    {
+      "idx": 41,
+      "gold": "550",
+      "pred": "550",
+      "correct": true,
+      "response_len": 227,
+      "has_boxed": true
+    },
+    {
+      "idx": 42,
+      "gold": "256",
+      "pred": "256",
+      "correct": true,
+      "response_len": 112,
+      "has_boxed": true
+    },
+    {
+      "idx": 43,
+      "gold": "45",
+      "pred": "9",
+      "correct": false,
+      "response_len": 190,
+      "has_boxed": true
+    },
+    {
+      "idx": 44,
+      "gold": "\\frac{1}{2}",
+      "pred": "\\frac{1}{4}",
+      "correct": false,
+      "response_len": 379,
+      "has_boxed": true
+    },
+    {
+      "idx": 45,
+      "gold": "15",
+      "pred": "8",
+      "correct": false,
+      "response_len": 448,
+      "has_boxed": true
+    },
+    {
+      "idx": 46,
+      "gold": "8",
+      "pred": "8",
+      "correct": true,
+      "response_len": 244,
+      "has_boxed": true
+    },
+    {
+      "idx": 47,
+      "gold": "9",
+      "pred": "22",
+      "correct": false,
+      "response_len": 377,
+      "has_boxed": true
+    },
+    {
+      "idx": 48,
+      "gold": "44",
+      "pred": "44",
+      "correct": true,
+      "response_len": 329,
+      "has_boxed": true
+    },
+    {
+      "idx": 49,
+      "gold": "47",
+      "pred": "47",
+      "correct": true,
+      "response_len": 150,
+      "has_boxed": true
+    }
+  ]
+}

@@ -158,8 +158,8 @@ def make_prompt(tokenizer, question: str) -> str:
 # ──────────────────────────────────────────────────────────────────────────────
 
 def evaluate(model, tokenizer, problems, label: str = "",
-             max_new_tokens: int = 512, save_items: bool = True,
-             batch_size: int = 4) -> dict:
+             max_new_tokens: int = 1024, save_items: bool = True,
+             batch_size: int = 1) -> dict:
     """Evaluate model on problems with batched generation for GPU efficiency."""
     model.eval()
     # Ensure left-padding for batched generation
