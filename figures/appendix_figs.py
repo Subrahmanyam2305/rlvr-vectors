@@ -152,7 +152,7 @@ def fig_a3_val_curves():
 
 def fig_a4_protocol():
     """Calibration/validation/test protocol diagram."""
-    fig, ax = plt.subplots(figsize=(10, 2.5))
+    fig, ax = plt.subplots(figsize=(12, 3.2))
     ax.axis("off")
 
     total = 500
@@ -161,7 +161,7 @@ def fig_a4_protocol():
         ("Val (n=50)", 400, 450, "#e65100"),
         ("Cal (n=50)", 450, 500, "#2e7d32"),
     ]
-    bar_y, bar_h = 0.4, 0.3
+    bar_y, bar_h = 0.3, 0.25
 
     for label, start, end, color in splits:
         width = (end - start) / total
@@ -171,13 +171,13 @@ def fig_a4_protocol():
         ax.add_patch(rect)
         ax.text(x + width / 2, bar_y + bar_h / 2, label,
                 ha="center", va="center", fontsize=11, fontweight="bold", color=color)
-        ax.text(x + width / 2, bar_y - 0.08, f"[{start}\u2013{end-1}]",
+        ax.text(x + width / 2, bar_y - 0.06, f"[{start}\u2013{end-1}]",
                 ha="center", va="top", fontsize=9, color="#555")
 
     arrows = [
-        (0.9, 0.85, "Sign orient +\nmean-diff vectors", "#2e7d32"),
-        (0.85, 0.85, r"Select $\alpha$, K", "#e65100"),
-        (0.4, 0.85, "Final evaluation\n(reported in tables)", "#1565c0"),
+        (0.95, 0.95, "Sign orient +\nmean-diff vectors", "#2e7d32"),
+        (0.85, 0.75, r"Select $\alpha$, K", "#e65100"),
+        (0.4, 0.75, "Final evaluation\n(reported in tables)", "#1565c0"),
     ]
     for x, y, txt, c in arrows:
         ax.annotate(txt, xy=(x, bar_y + bar_h), xytext=(x, y),
@@ -185,7 +185,7 @@ def fig_a4_protocol():
                     arrowprops=dict(arrowstyle="->", color=c, lw=1.5))
 
     ax.set_xlim(-0.02, 1.02)
-    ax.set_ylim(-0.15, 1.1)
+    ax.set_ylim(-0.12, 1.15)
     ax.set_title("MATH500 Data Split Protocol", fontsize=13, fontweight="bold", pad=10)
 
     fig.tight_layout()

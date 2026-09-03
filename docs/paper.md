@@ -136,12 +136,12 @@ This condition is neither necessary nor sufficient for behavioral transfer: scal
 
 **Sign disambiguation.** SVD singular vectors have an inherent sign ambiguity: $(u, v)$ and $(-u, -v)$ represent the same weight delta. For steering purposes, discarding $v$ makes the sign of $u$ undetermined. We resolve this using **source-gate orientation**: for each projection $m$ in layer $l$, we orient $u_{l,m}$ using calibration activations from the source base model:
 $$\tilde{u}_{l,m} = \operatorname{sign}\!\left(\mathbb{E}[v_{l,m}^T x_{\text{src}}]\right) \cdot u_{l,m}$$
-This orientation is applied to each $u_{l,m}$ **individually before combining** across projections. It requires a single calibration pass on the source base model (not the RLVR model). We compare this to a weight-only orientation rule (largest-magnitude coordinate positive, no data required) and a mean-difference orientation (requires both source base and RLVR inference) as ablation baselines in `comprehensive_suite.py`.
+This orientation is applied to each $u_{l,m}$ **individually before combining** across projections. It requires a single calibration pass on the source base model (not the RLVR model). We compare this to a weight-only orientation rule (largest-magnitude coordinate positive, no data required) and a mean-difference orientation (requires both source base and RLVR inference) in ablation experiments.
 
 ### 5.2 Spectral Concentration
 
 Across 198 parameter matrices (196 within 28 transformer blocks, plus the embedding and language-model head):
-- Mean rank-1 fraction: $\bar{\rho} = 0.258$ (shape-matched i.i.d. Gaussian references have means of $\approx 0.001$–$0.007$, giving ratios of **39–173×** depending on matrix shape; see `outputs/spectral_null.json`)
+- Mean rank-1 fraction: $\bar{\rho} = 0.258$ (shape-matched i.i.d. Gaussian references have means of $\approx 0.001$–$0.007$, giving ratios of **39–173×** depending on matrix shape)
 - Maximum: $\rho_{\max} = 0.871$ (attention V-projection in layer 27)
 - Matrices with $\rho > 0.3$: 57/198 (29%)
 
@@ -155,16 +155,16 @@ We measure gate statistics across the 56 `o_proj` and `down_proj` parameter matr
 
 | Metric | Value |
 |--------|-------|
-| Unweighted mean across 56 projections of $\mathbb{E}_{p}|g^{\text{tgt}}_{l,p}|/\mathbb{E}_{p}|g^{\text{src}}_{l,p}|$ | **0.456** |
+| Unweighted mean across 56 projections of $\mathbb{E}_{p}|g^{\text{tgt}}_{l,p}| / \mathbb{E}_{p}|g^{\text{src}}_{l,p}|$ | **0.456** |
 | Median ratio | 0.415 |
 | Fraction of projections with ratio < 0.5 | 66.1% |
 | Mean paired prompt-level sign agreement | **88.0%** (12.0% sign disagreement) |
 
-These values are from `outputs/gate_analysis.json`, measured on 56 `o_proj`/`down_proj` matrices using 50 paired calibration problems (prompt tokens only).
+These values are measured on 56 `o_proj`/`down_proj` matrices using 50 paired calibration problems (prompt tokens only).
 
 ![Figure 3: Source vs target gate magnitudes on log scale. Each point is one projection's mean $|v^T x|$ across calibration problems. The red line shows the mean attenuation factor (0.456); the shaded region highlights the systematic shortfall in target gate magnitudes.](figures/fig3_gate_scatter.png)
 
-Generation-time gate statistics are reported separately in `gate_analysis.json` as an unpaired distribution (generated sequences differ between models).
+Generation-time gate statistics are computed separately as an unpaired distribution (generated sequences differ between models).
 
 ### 5.4 Weight Transfer vs. Activation Steering
 
@@ -191,7 +191,7 @@ where $w_l = \sigma_l / \sigma_{\max}$ is the normalized importance weight, and 
 
 **Sign ambiguity note.** Each $u_{l,m}$ must be individually oriented *before* summation, since $(u, v)$ and $(-u, -v)$ represent identical weight deltas — discarding $v$ leaves $u$'s sign undetermined. We use:
 $$\tilde{u}_{l,m} = \operatorname{sign}\!\left(\mathbb{E}[v_{l,m}^T x]\right) \cdot u_{l,m}$$
-where $x$ is the input to projection $m$ on source-model calibration examples ("source-gate orientation"). Steps 1–2 require only the weight delta; step 3 requires one calibration pass on the source base model only (not the RLVR model). We compare this to a weight-only rule (no calibration) and to mean-difference orientation in ablations (`comprehensive_suite.py`).
+where $x$ is the input to projection $m$ on source-model calibration examples ("source-gate orientation"). Steps 1–2 require only the weight delta; step 3 requires one calibration pass on the source base model only (not the RLVR model). We compare this to a weight-only rule (no calibration) and to mean-difference orientation in ablation experiments.
 
 ### 6.2 Variants
 
@@ -358,7 +358,7 @@ The top 5 parameter matrices by rank-1 fraction are all attention projections:
 4. `model.layers.17.self_attn.v_proj.weight` — ρ = 0.601
 5. `model.layers.26.self_attn.v_proj.weight` — ρ = 0.594
 
-These values are from `outputs/spectral_data.json` (198 entries, 196 with `layer_idx ≥ 0`).
+These values are computed across 198 parameter matrices (196 with `layer_idx ≥ 0`).
 
 ![Figure A1: Block-by-projection heatmap of rank-1 fraction. Attention V- and K-projections in later layers show the strongest spectral concentration.](figures/figA1_heatmap.png)
 
@@ -371,14 +371,7 @@ The primary results in Table 1 use:
 - Greedy decoding with `max_new_tokens=1024` and batch size 1
 - Symbolic answer equivalence through `math-verify`
 
-Canonical item-level artifacts are:
-- `outputs/items_baseline_test.json`
-- `outputs/items_test_svd_full_a1.5.json`
-- `outputs/items_test_svd_top5_a1.5.json`
-- `outputs/items_test_meandiff_a0.01.json`
-- `outputs/items_scope_weight_transfer.json`
-
-These files contain predictions and per-item correctness used for exact McNemar tests. Only the artifacts listed above are used for the primary behavioral results.
+Canonical item-level artifacts (included in the repository) record predictions and per-item correctness for each condition, enabling exact McNemar tests. Only these artifacts are used for the primary behavioral results.
 
 ## Appendix C: Pilot Experiments Excluded from Main Claims
 

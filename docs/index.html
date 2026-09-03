@@ -33,7 +33,9 @@ ul, ol { margin: 0 0 12px 24px; }
 li { margin-bottom: 4px; }
 
 /* Math */
-.katex-display { margin: 16px 0; overflow-x: auto; }
+.katex-display { margin: 20px 0; overflow-x: visible; overflow-y: visible; }
+.katex-display > .katex { text-align: center; }
+.katex { font-size: 1.1em; }
 
 /* Tables */
 table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13px; }
@@ -114,15 +116,30 @@ function renderPaper(md) {
     return out;
   }
 
+  function splitTableRow(row) {
+    // Split on | but protect $...$ math spans that may contain pipes
+    const cells = [];
+    let cur = '';
+    let inMath = false;
+    for (let c = 0; c < row.length; c++) {
+      if (row[c] === '$' && !inMath) { inMath = true; cur += '$'; }
+      else if (row[c] === '$' && inMath) { inMath = false; cur += '$'; }
+      else if (row[c] === '|' && !inMath) { cells.push(cur); cur = ''; }
+      else { cur += row[c]; }
+    }
+    if (cur) cells.push(cur);
+    return cells.filter(c => c.trim() !== '');
+  }
+
   function flushTable() {
     if (!inTable) return '';
     inTable = false;
     if (tableRows.length === 0) return '';
     let t = '<table>';
     tableRows.forEach((row, i) => {
-      const cells = row.split('|').filter(c => c.trim() !== '');
+      const cells = splitTableRow(row);
       const tag = i === 0 ? 'th' : 'td';
-      if (i === 1 && cells.every(c => /^[\s\-:]+$/.test(c))) return; // skip separator
+      if (i === 1 && cells.every(c => /^[\s\-:]+$/.test(c))) return;
       t += '<tr>' + cells.map(c => `<${tag}>${inlineFormat(c.trim())}</${tag}>`).join('') + '</tr>';
     });
     t += '</table>';
@@ -131,6 +148,10 @@ function renderPaper(md) {
   }
 
   function inlineFormat(text) {
+    // Protect math spans from formatting
+    const mathSpans = [];
+    text = text.replace(/\$\$[\s\S]+?\$\$/g, m => { mathSpans.push(m); return `%%MATH${mathSpans.length-1}%%`; });
+    text = text.replace(/\$[^$]+?\$/g, m => { mathSpans.push(m); return `%%MATH${mathSpans.length-1}%%`; });
     // Bold
     text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
     // Italic
@@ -139,6 +160,8 @@ function renderPaper(md) {
     text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
     // Links
     text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+    // Restore math
+    text = text.replace(/%%MATH(\d+)%%/g, (_, idx) => mathSpans[parseInt(idx)]);
     return text;
   }
 
@@ -160,7 +183,10 @@ function renderPaper(md) {
       const caption = capMatch
         ? `<strong>${capMatch[1]}:</strong> ${inlineFormat(capMatch[2])}`
         : inlineFormat(alt);
-      html += `<figure><img src="${src}" alt="${alt}" loading="lazy"><figcaption>${caption}</figcaption></figure>`;
+      const tallFigs = ['figA1_heatmap', 'figA2_gate'];
+      const isTall = tallFigs.some(f => src.includes(f));
+      const style = isTall ? ' style="max-height:480px;width:auto"' : '';
+      html += `<figure><img src="${src}" alt="${alt}" loading="lazy"${style}><figcaption>${caption}</figcaption></figure>`;
       i++; continue;
     }
 
@@ -235,24 +261,34 @@ function renderPaper(md) {
       listItems.push(trimmed.replace(/^[-*]\s/, ''));
       i++; continue;
     }
-    if (inList && trimmed === '') { html += flushList(); i++; continue; }
+    if (inList && trimmed === '') {
+      // Look ahead: if the next non-empty line is another list item of the same type, keep the list open
+      let peek = i + 1;
+      while (peek < lines.length && lines[peek].trim() === '') peek++;
+      const nextLine = peek < lines.length ? lines[peek].trim() : '';
+      const nextIsOl = /^\d+\.\s/.test(nextLine);
+      const nextIsUl = /^[-*]\s/.test(nextLine);
+      if ((listType === 'ol' && nextIsOl) || (listType === 'ul' && nextIsUl)) {
+        i++; continue; // skip blank line, keep list open
+      }
+      html += flushList(); i++; continue;
+    }
     if (inList && !trimmed.startsWith(' ')) { html += flushList(); }
 
-    // Display math
+    // Display math — emit raw $$...$$ and let KaTeX auto-render handle it
     if (trimmed.startsWith('$$')) {
       html += flushList() + flushTable();
-      let math = trimmed.slice(2);
-      if (math.endsWith('$$')) {
-        math = math.slice(0, -2);
-        html += `<div class="katex-display">$$${math}$$</div>`;
+      let math = trimmed;
+      if (trimmed.endsWith('$$') && trimmed.length > 4) {
+        html += `<p>${math}</p>`;
       } else {
         i++;
         while (i < lines.length && !lines[i].trim().endsWith('$$')) {
           math += '\n' + lines[i];
           i++;
         }
-        if (i < lines.length) math += '\n' + lines[i].trim().slice(0, -2);
-        html += `<div class="katex-display">$$${math}$$</div>`;
+        if (i < lines.length) math += '\n' + lines[i].trim();
+        html += `<p>${math}</p>`;
       }
       i++; continue;
     }
