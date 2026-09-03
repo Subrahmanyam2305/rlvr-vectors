@@ -21,9 +21,21 @@ MODELS = {
 }
 
 
-def load_math500(n=50):
+def load_math500_split(split="test"):
+    """Load a disjoint MATH500 partition.
+
+    Splits: cal=450-499 (n=50), val=400-449 (n=50), test=0-399 (n=400).
+    """
     with open(DATA_DIR / "math500.json") as f:
-        return json.load(f)[:n]
+        data = json.load(f)
+    if split == "cal":
+        return data[450:500]
+    elif split == "val":
+        return data[400:450]
+    elif split == "test":
+        return data[0:400]
+    else:
+        raise ValueError(f"Unknown split: {split}")
 
 
 def extract_boxed(text):
@@ -165,8 +177,8 @@ def evaluate_with_steering(model, tokenizer, problems, steering_vectors, alpha, 
 
 
 def main():
-    calib_problems = load_math500(15)
-    eval_problems = load_math500(50)
+    calib_problems = load_math500_split("cal")
+    eval_problems = load_math500_split("test")
 
     print("Step 1: Collecting hidden states from source base model...")
     src_model = AutoModelForCausalLM.from_pretrained(

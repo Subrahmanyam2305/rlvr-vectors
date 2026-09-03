@@ -22,9 +22,21 @@ MODELS = {
 }
 
 
-def load_math500(n=100):
+def load_math500_split(split="test"):
+    """Load a disjoint MATH500 partition.
+
+    Splits: cal=450-499 (n=50), val=400-449 (n=50), test=0-399 (n=400).
+    """
     with open(DATA_DIR / "math500.json") as f:
-        return json.load(f)[:n]
+        data = json.load(f)
+    if split == "cal":
+        return data[450:500]
+    elif split == "val":
+        return data[400:450]
+    elif split == "test":
+        return data[0:400]
+    else:
+        raise ValueError(f"Unknown split: {split}")
 
 
 def extract_boxed(text):
@@ -159,7 +171,7 @@ def run_experiment(model_name, label, problems, vectors_path=None, alpha=1.0):
 
 
 def main():
-    problems = load_math500(100)
+    problems = load_math500_split("test")
     vectors_path = OUTPUT_DIR / "rank1_vectors.pt"
 
     if not vectors_path.exists():

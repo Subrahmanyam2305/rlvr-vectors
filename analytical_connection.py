@@ -19,9 +19,21 @@ OUTPUT_DIR = Path("outputs")
 DATA_DIR = Path("data")
 
 
-def load_math500(n=15):
+def load_math500_split(split="cal"):
+    """Load a disjoint MATH500 partition.
+
+    Splits: cal=450-499 (n=50), val=400-449 (n=50), test=0-399 (n=400).
+    """
     with open(DATA_DIR / "math500.json") as f:
-        return json.load(f)[:n]
+        data = json.load(f)
+    if split == "cal":
+        return data[450:500]
+    elif split == "val":
+        return data[400:450]
+    elif split == "test":
+        return data[0:400]
+    else:
+        raise ValueError(f"Unknown split: {split}")
 
 
 def make_prompt(tokenizer, question):
@@ -118,7 +130,7 @@ def main():
     print("ANALYTICAL CONNECTION: v^T*x GATING ANALYSIS")
     print("=" * 60)
 
-    problems = load_math500(15)
+    problems = load_math500_split("cal")
 
     # Step 1: SVD components
     print("\nStep 1: Computing SVD components...")

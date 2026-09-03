@@ -8,18 +8,22 @@ This repository contains the code and experimental results for our paper analyzi
 
 1. **Rank-1 weight transfer = conditional activation steering** — We prove that applying a rank-1 weight delta is mathematically equivalent to input-conditional steering: `y_new = y + σ·(v^T·x)·u`
 
-2. **The gating mechanism breaks cross-model** — The trigger signal `v^T·x` drops to 39% magnitude with 10% sign flips on the target model, explaining why weight transfer yields only +2% while activation steering yields +14%
+2. **The gating mechanism breaks cross-model** — The trigger signal `v^T·x` drops to 45.6% magnitude with 12% sign flips on the target model, explaining why weight transfer yields only +1.5 pp while activation steering yields +3.5 pp
 
-3. **SVD-derived steering vectors** — Extracting `u` from weight deltas and applying as activation steering achieves +10% with sparse top-K selection, without requiring source model inference
+3. **SVD-derived steering vectors** — Extracting `u` from weight deltas and applying as activation steering achieves +2.25 pp with sparse top-K selection, without requiring source model inference
 
 ## Results Summary
 
-| Method | MATH500 Accuracy | Δ vs Baseline |
-|--------|:---:|:---:|
-| Target baseline (Qwen2.5-1.5B-Instruct) | 46% | — |
-| Weight transfer (rank-1, best α) | 50% | +4 |
-| **Mean-diff activation steering** | **60%** | **+14** |
-| **SVD top-15 steering (ours)** | **56%** | **+10** |
+Results on disjoint held-out TEST partition (n=400). None reach statistical significance.
+
+| Method | MATH500 Accuracy | Δ vs Baseline | McNemar *p* |
+|--------|:---:|:---:|:---:|
+| Target baseline (Qwen2.5-1.5B-Instruct) | 46.25% | — | — |
+| Weight transfer (rank-1) | 47.75% | +1.50 pp | 0.539 |
+| SVD top-5 steering (ours) | 48.50% | +2.25 pp | 0.298 |
+| **Mean-diff activation steering** | **49.75%** | **+3.50 pp** | 0.125 |
+
+**[Read the full paper →](https://subrahmanyam2305.github.io/rlvr-vectors/)**
 
 ## Setup
 
@@ -39,7 +43,7 @@ python extract_vectors.py     # SVD analysis of RLVR weight deltas
 
 ### Phase 2: Transfer Evaluation
 ```bash
-python eval_lean.py           # Rank-1 weight transfer experiments
+python eval_weight_transfer.py  # Rank-1 weight transfer experiments
 ```
 
 ### Phase 3: Vector Consistency
@@ -65,7 +69,7 @@ python recalibrated_transfer.py  # Attempt to fix weight transfer
 ### Phase 7: SVD-Derived Steering
 ```bash
 python svd_steering.py           # SVD u-vectors as steering (projection level)
-python overnight_suite.py        # Full comparison: SVD vs mean-diff (residual stream)
+python eval_steering_comparison.py  # Full comparison: SVD vs mean-diff (residual stream)
 ```
 
 ## Models Used
@@ -81,15 +85,18 @@ python overnight_suite.py        # Full comparison: SVD vs mean-diff (residual s
 ```
 ├── download_math500.py         # Dataset preparation
 ├── extract_vectors.py          # Phase 1: SVD spectral analysis
-├── eval_lean.py                # Phase 2: Weight transfer evaluation
+├── eval_weight_transfer.py     # Phase 2: Weight transfer evaluation
 ├── compare_vectors.py          # Phase 3: Vector consistency check
 ├── approach_steering.py        # Phase 4: Activation steering
 ├── analytical_connection.py    # Phase 5: Gating signal analysis
 ├── recalibrated_transfer.py    # Phase 6: Recalibrated weight transfer
 ├── svd_steering.py             # Phase 7: SVD-derived steering
-├── overnight_suite.py          # Phase 7: Full SVD vs mean-diff comparison
-├── paper_draft.md              # Paper manuscript (markdown)
+├── eval_steering_comparison.py # Phase 7: Full SVD vs mean-diff comparison
 ├── REPORT.md                   # Detailed experimental report
+├── docs/                       # GitHub Pages site (arXiv-style paper)
+│   ├── index.html
+│   ├── paper.md
+│   └── figures/
 ├── requirements.txt
 ├── data/
 │   └── math500.json            # MATH500 evaluation set

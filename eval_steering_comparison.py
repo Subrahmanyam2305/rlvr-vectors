@@ -17,13 +17,25 @@ from safetensors import safe_open
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
-OUTPUT_DIR = Path("/home/ubuntu/rlvr-vectors/outputs")
-DATA_DIR = Path("/home/ubuntu/rlvr-vectors/data")
+OUTPUT_DIR = Path(__file__).resolve().parent / "outputs"
+DATA_DIR = Path(__file__).resolve().parent / "data"
 
 
-def load_math500(n=50):
+def load_math500_split(split="test"):
+    """Load a disjoint MATH500 partition.
+
+    Splits: cal=450-499 (n=50), val=400-449 (n=50), test=0-399 (n=400).
+    """
     with open(DATA_DIR / "math500.json") as f:
-        return json.load(f)[:n]
+        data = json.load(f)
+    if split == "cal":
+        return data[450:500]
+    elif split == "val":
+        return data[400:450]
+    elif split == "test":
+        return data[0:400]
+    else:
+        raise ValueError(f"Unknown split: {split}")
 
 
 def extract_boxed(text):
@@ -355,8 +367,8 @@ def main():
     print("=" * 70)
     print(flush=True)
 
-    eval_problems = load_math500(50)
-    calib_problems = load_math500(15)
+    eval_problems = load_math500_split("test")
+    calib_problems = load_math500_split("cal")
 
     results = {}
 
