@@ -428,7 +428,7 @@ An early pilot experiment suggested that hook placement materially affects resul
 
 | Hook placement | Best accuracy | Best Δ (pp) |
 |---------------|--------------|-------------|
-| o\_proj/down\_proj output | 48% | +2 |
+| `o_proj`/`down_proj` output | 48% | +2 |
 | Residual stream (after full transformer block) | 54% | +8 |
 
 Because this comparison used the exploratory protocol, it motivates a future matched-location ablation but does not establish that residual-stream injection is generally superior.
